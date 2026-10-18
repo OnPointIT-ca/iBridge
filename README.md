@@ -50,6 +50,7 @@ header. This personal MVP does not implement OAuth discovery or consent.
 | REST and MCP gateway | Shared command layer, scoped hashed tokens, rotation/revocation, input validation |
 | Durable writes | SQLite records before dispatch, saved receipts, restart-safe replay, blocked uncertain outcomes |
 | Hermes plugin | 21 registered tools, current capability checks, bounded responses, sanitized errors |
+| Android client | Android 8.0+ read-only client, encrypted connection storage, capability discovery, service browsing, and small Drive file export |
 | Installation | User LaunchAgents, preserved state on upgrades, signed bundles, arm64 and Intel CI artifacts |
 
 Notes and Messages are **off by default**. Enable each in the Mac app and grant
@@ -59,6 +60,19 @@ access. See [adapter setup and limits](docs/notes-messages.md).
 This MVP does not send messages, delete data, make bulk changes, create event
 invitations, or support recurring event creation.
 
+## Android app
+
+The [native Android app](android/README.md) connects to the same v1 server with
+client-specific tokens. It browses Calendar, Reminders, Contacts, selected Drive
+folders, and locally enabled Notes and Messages with explicit resource grants.
+Saved credentials use Android Keystore
+encryption; small Drive files can be exported through the system file picker.
+
+This first Android version is read-only. It does not sign in to iCloud directly
+or synchronize into Android's system apps. Build and install instructions are in
+[android/README.md](android/README.md). Client fixtures and emulator checks do not
+replace live integration testing with your Mac.
+
 ## Architecture
 
 ```mermaid
@@ -66,6 +80,7 @@ flowchart LR
     H[Remote Hermes] --> P[Python plugin]
     A[Other remote agent] -->|MCP| G
     P -->|REST| G[Private HTTPS / Tailscale Serve]
+    C[Android app] -->|REST| G
     G --> T[TypeScript gateway on loopback]
     T --> J[Private SQLite write journal]
     T -->|Protected Unix socket| S[Swift user-session host]
@@ -144,6 +159,7 @@ after relevant validation, and reflected in this README.
 
 - [Mac installation, private HTTPS, and live acceptance](docs/macos-setup.md)
 - [Notes and Messages setup, resource grants, and limits](docs/notes-messages.md)
+- [Android client](android/README.md)
 - [Hermes plugin](plugins/hermes-ibridge/README.md)
 - [MCP transport and client configuration](docs/mcp.md)
 - [Gateway administration](gateway/README.md)
