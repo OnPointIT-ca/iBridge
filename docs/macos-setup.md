@@ -242,6 +242,15 @@ relying on unattended access to your own data.
 
 ## Stop, update, and diagnose
 
+Choosing **Quit** in the menu bar stops the native host until your next login;
+launchd restarts it automatically only after an unsuccessful exit. The gateway
+stays running and reports that native services are unavailable. To start a host
+you quit without logging out, use its already loaded login-agent label:
+
+```sh
+launchctl kickstart "gui/$(id -u)/ca.onpointit.ibridge.host"
+```
+
 Stop the two exact services without changing personal state:
 
 ```sh
