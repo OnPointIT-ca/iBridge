@@ -170,3 +170,18 @@ test('oversized request bodies are rejected and unknown adapter errors do not le
   assert.equal(large.status,413);assert.equal(f.calls.length,0);
   f.fault='malformed';assert.equal((await f.request('/api/v1/calendars')).status,503);
 });
+
+test('event ranges over 366 days fail before native dispatch or journaling; exact limit is accepted',async t=>{
+  const f=await fixture(t);
+  const event={calendar_id:'cal-1',title:'Bounded event',start:'2026-01-01T00:00:00Z'};
+  for (const end of ['2027-01-02T00:00:01Z','2027-01-02T01:00:01+01:00','2028-01-01T00:00:00Z']) {
+    const query=new URLSearchParams({calendar_id:event.calendar_id,start:event.start,end});
+    assert.equal((await f.request('/api/v1/events?'+query)).status,400);
+    const rejected=await f.request('/api/v1/events',{body:{...event,end},key:'event-range-001'});
+    assert.equal(rejected.status,400);assert.equal(rejected.body.error.outcome,undefined);
+  }
+  assert.equal(f.calls.length,0);assert.equal(f.store.listJournal().length,0);
+  const accepted=await f.request('/api/v1/events',{body:{...event,end:'2027-01-02T01:00:00+01:00'},key:'event-range-001'});
+  assert.equal(accepted.status,200);assert.equal(accepted.body.data.state,'saved');
+  assert.equal(f.calls.length,1);assert.equal(f.calls[0]?.operation,'calendar.events.create');
+});
