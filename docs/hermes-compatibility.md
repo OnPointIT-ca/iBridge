@@ -20,6 +20,11 @@ environment containing the dependencies in `scripts/requirements-compatibility.t
 This is an interface compatibility check, not a claim about every Hermes release.
 The plugin's Python 3.10 minimum does not override Hermes' interpreter requirements.
 
+The final v0.3.0 plugin passed both official checks with **21 registered tools**
+and no validation warnings. The combined local client/installation suite passed
+all **42 tests**, including schema validation. These counts describe this version;
+rerun the checks whenever tools or host compatibility change.
+
 | Check | What actually runs | Scope |
 | --- | --- | --- |
 | `hermes plugins doctor PATH --ci` | Official manifest parser, directory discovery, namespaced import, plugin loader and tool registry | Passed real runtime registration with sockets blocked by Doctor |

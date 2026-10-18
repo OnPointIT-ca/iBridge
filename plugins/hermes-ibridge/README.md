@@ -12,7 +12,7 @@ The plugin uses only Python's standard library and supports Python 3.10+.
 Use a Hermes release supporting native `plugin.yaml` / `register(ctx)` directory
 plugins, with Hermes' own supported Python version. Compatibility checks use
 the pinned official Hermes revision documented in
-[Hermes compatibility](../../docs/hermes-compatibility.md).
+[Hermes compatibility](https://github.com/OnPointIT-ca/iBridge/blob/main/docs/hermes-compatibility.md).
 
 From the repository root, install into the profile used by your remote agent:
 
@@ -64,7 +64,7 @@ the plugin directory.
 | --- | --- |
 | `IBRIDGE_URL` | HTTPS origin, e.g. `https://mac.example.ts.net`, without `/api/v1` |
 | `IBRIDGE_TOKEN` | Client-specific token issued by the bridge |
-| `IBRIDGE_TIMEOUT_SECONDS` | Optional request timeout, default 20, maximum 120 |
+| `IBRIDGE_TIMEOUT_SECONDS` | Socket timeout/body-read budget, default 20, maximum 120; not a universal wall-clock deadline |
 | `IBRIDGE_ALLOW_LOCAL_HTTP` | Set to `1` only for loopback HTTP development |
 
 Use private HTTPS over Tailscale for remote access. Certificate validation stays
@@ -72,6 +72,11 @@ enabled. Plain HTTP tailnet/LAN IPs are not accepted. Redirects are not followed
 The plugin uses Hermes' scoped `agent.secret_scope.get_secret` when available;
 standalone tests/older installations fall back to process environment variables
 only when that module is absent. It never reads credential files.
+
+The client bounds ordinary response-body drips. Python's DNS lookup, HTTP header
+parsing, and chunked-transfer framing may exceed that budget; it is not a hard
+end-to-end deadline. No timeout implies that an already-dispatched write was
+cancelled or had no effect.
 
 ## Tools
 
@@ -89,10 +94,43 @@ Read tools cover:
 - Messages: `ibridge_messages_chats`, `ibridge_messages_search`,
   `ibridge_messages_read`.
 
-Each service call fetches current capabilities, validates arguments, and requests
-one bounded page or record. Missing capabilities fail closed. The server still
-enforces permissions on the actual request. Notes and Messages are experimental
-until their adapters are validated on your Mac.
+Write tools cover:
+
+- `ibridge_calendar_create_event`: a simple timed event in a selected calendar.
+- `ibridge_reminders_create`: one reminder, optionally with a due timestamp.
+- `ibridge_reminders_complete`: completion of one reminder in a selected list.
+- `ibridge_notes_create`: one plain-text note in a selected folder.
+- `ibridge_drive_upload`: one new file up to 256 KiB, supplied as base64. Existing
+  files cannot be overwritten; the parent directory must already exist.
+
+All five require `request_id`, a stable identifier such as a UUID for that exact
+write. The key is sent as `Idempotency-Key`, separately from the JSON body. The
+bridge must persist the key and result durably and reject reuse with different
+arguments. This is a server obligation, not a guarantee a client can provide.
+
+For example, after discovering the authorized list ID, call
+`ibridge_reminders_create` with:
+
+```json
+{
+  "list_id": "list-id-from-discovery",
+  "title": "Review the project plan",
+  "due": "2026-10-20T09:00:00-07:00",
+  "request_id": "8e86ac87-c0e8-4f7f-8cc6-d558e933bc2b"
+}
+```
+
+Use a fresh ID for each new intentional action. Keep the same ID and exact
+arguments when replaying the same action. Writes are not automatically retried.
+An uncertain error includes `outcome: "unknown"` and `request_id`: reconcile the
+result with the bridge before retrying. Success requires a matching request ID,
+`state: "saved"`, and a resource ID; a pending job is not reported as completed.
+No tool sends messages, deletes data, performs bulk changes, or approves itself.
+
+Each service call validates arguments and fetches current capabilities. Reads
+return one bounded page or record. Missing capabilities fail closed. The server
+still enforces permissions on the actual request. Notes and Messages are
+experimental until their adapters are validated on your Mac.
 
 Example: ask Hermes to list authorized reminder lists, then read one by its ID.
 For calendar queries, use explicit timezones. Returned `meta.sync_state: local`
@@ -110,7 +148,7 @@ python3 -m unittest discover -s tests -v
 JSON Schema validation requires the developer-only dependencies in
 `scripts/requirements-compatibility.txt`; that test is skipped when the validator
 is absent. CI installs them and runs all checks. See
-[Hermes compatibility](../../docs/hermes-compatibility.md) for the pinned, real
+[Hermes compatibility](https://github.com/OnPointIT-ca/iBridge/blob/main/docs/hermes-compatibility.md) for the pinned, real
 Hermes discovery/registration and catalog checks. Those checks validate the
 plugin's host interface; HTTP fixture tests do not establish Apple-service access.
 

@@ -17,7 +17,8 @@ parallel subagents with isolated worktrees for independent features.
 
 1. **Complete:** Hermes connection and discovery, with a versioned HTTP contract.
 2. **Complete:** Validated read tools for all six planned Apple service modules.
-3. Scoped write tools with explicit idempotency keys and installation guidance.
+3. **Complete:** Scoped write tools with explicit idempotency keys, safe profile
+   installation, and pinned official Hermes compatibility checks.
 4. Native Swift app: establish permissions and verify access on the target Mac.
 5. TypeScript gateway: implement this contract, token scopes, durable write
    records, and a real remote-agent-to-Reminders round trip.
