@@ -20,8 +20,8 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   app.setErrorHandler((error,request,reply) => {
     let safe: BridgeError;
     if (error instanceof BridgeError) safe = error;
-    else if (error.code === 'FST_ERR_CTP_BODY_TOO_LARGE') safe = new BridgeError(413,'request_too_large','The request exceeds the size limit.');
-    else if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) safe = new BridgeError(error.statusCode,'invalid_arguments','The request is invalid.');
+    else if (isObject(error) && error.code === 'FST_ERR_CTP_BODY_TOO_LARGE') safe = new BridgeError(413,'request_too_large','The request exceeds the size limit.');
+    else if (isObject(error) && typeof error.statusCode === 'number' && error.statusCode >= 400 && error.statusCode < 500) safe = new BridgeError(error.statusCode,'invalid_arguments','The request is invalid.');
     else safe = new BridgeError(503,'adapter_unavailable','The service could not complete the operation.');
     if (safe.status === 401) reply.header('WWW-Authenticate','Bearer realm="iBridge"');
     reply.code(safe.status).send(safe.toEnvelope());
@@ -38,7 +38,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
       } else {
         if (Object.keys(request.query as object).length) throw new BridgeError(400,'invalid_arguments','Writes take no query arguments.');
         if (!isObject(request.body)) throw new BridgeError(400,'invalid_arguments','A JSON object is required.');
-        if (Object.hasOwn(request.body,'request_id') || op.path_keys.some(key => Object.hasOwn(request.body,key))) throw new BridgeError(400,'invalid_arguments','Path IDs and the request ID must not be duplicated in the body.');
+        if (Object.hasOwn(request.body,'request_id') || op.path_keys.some(key => Object.hasOwn(request.body as object,key))) throw new BridgeError(400,'invalid_arguments','Path IDs and the request ID must not be duplicated in the body.');
         args = {...request.body,...request.params as object,request_id:request.headers['idempotency-key']};
       }
       return options.service.execute(options.service.authenticate(request.headers.authorization),op.name,args);

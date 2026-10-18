@@ -6,11 +6,11 @@ export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 function dateValue(value: string): number {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/.exec(value);
   if (!match) return NaN;
   const [, ys, mos, ds, hs, mis, ss, , zone] = match;
   const [y, mo, d, h, mi, s] = [ys, mos, ds, hs, mis, ss].map(Number) as [number,number,number,number,number,number];
-  const days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const days = [31, (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)) ? 29 : 28,31,30,31,30,31,31,30,31,30,31][mo - 1] ?? 0;
   if (y < 1 || mo < 1 || mo > 12 || d < 1 || d > days || h > 23 || mi > 59 || s > 59) return NaN;
   if (zone !== 'Z' && (Number(zone!.slice(1,3)) > 23 || Number(zone!.slice(4,6)) > 59)) return NaN;
   return Date.parse(value);
@@ -34,7 +34,7 @@ export function validateArguments(op: Operation, input: unknown, query = false):
     } else if (rule.type === 'boolean') {
       if (typeof value !== 'boolean') throw bad(key);
     } else if (rule.type === 'string') {
-      if (typeof value !== 'string' || /[\u0000]/.test(value)) throw bad(key);
+      if (typeof value !== 'string' || /[\u0000-\u0008\u000b-\u001f]/.test(value)) throw bad(key);
       const length = [...value].length;
       if (length < (rule.minLength ?? 0) || length > (rule.maxLength ?? Infinity)) throw bad(key);
       if (rule.pattern && !new RegExp(rule.pattern).test(value)) throw bad(key);
@@ -47,6 +47,7 @@ export function validateArguments(op: Operation, input: unknown, query = false):
     } else throw bad(key);
     args[key] = value;
   }
+  for (const key of op.path_keys) if (args[key] === '.' || args[key] === '..') throw bad(key);
   if (typeof args.start === 'string' && typeof args.end === 'string' && dateValue(args.end) <= dateValue(args.start)) throw bad('end');
   return args;
 }

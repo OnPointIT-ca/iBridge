@@ -42,10 +42,11 @@ export class BridgeService {
     const capabilities: Record<string, unknown> = {};
     for (const op of operations) {
       let reason: string | undefined;
+      const nativeCapability = native[op.capability];
       if (!implemented(op)) reason = 'not_implemented';
       else if (!scopeAllows(client,op)) reason = 'permission_denied';
       else if (failure) reason = 'adapter_unavailable';
-      else if (!isObject(native[op.capability]) || native[op.capability].available !== true) reason = 'permission_required';
+      else if (!isObject(nativeCapability) || nativeCapability.available !== true) reason = 'permission_required';
       const collection = collectionResources[op.capability];
       const needed = collection ?? (op.capability.startsWith('calendar.') ? 'calendar_ids' : op.capability.startsWith('reminders.') ? 'reminder_list_ids' : op.capability.startsWith('drive.') ? 'drive_root_ids' : undefined);
       if (!reason && needed && client.resources[needed].length === 0) reason = 'permission_denied';
