@@ -27,6 +27,7 @@ end sameID
 
 on visitFolders(parentObject)
     my checkBudget()
+    with timeout of 2 seconds
     tell application id "com.apple.Notes"
         set childCount to count folders of parentObject
         if childCount > 500 then error "Folder limit" number -2704
@@ -44,6 +45,7 @@ on visitFolders(parentObject)
             end if
         end repeat
     end tell
+    end timeout
 end visitFolders
 
 on boundedText(valueText, maximumSize)
@@ -55,10 +57,12 @@ end boundedText
 
 on noteRecord(selectedNote, folderID, includeBody)
     my checkBudget()
+    with timeout of 2 seconds
     tell application id "com.apple.Notes"
         -- Verify the actual container before reading any title or body. The caller
         -- only obtains note references from an exactly authorized folder.
         if not (my sameID((id of container of selectedNote), folderID)) then error "Container changed" number -2702
+        my checkBudget()
         if password protected of selectedNote then error "Locked note" number -2703
         my checkBudget()
         set noteID to id of selectedNote
@@ -75,6 +79,7 @@ on noteRecord(selectedNote, folderID, includeBody)
         if not (my sameID((id of container of selectedNote), folderID)) then error "Container changed" number -2702
         return {noteID, folderID, noteTitle, noteBody, hasAttachments}
     end tell
+    end timeout
 end noteRecord
 
 on bridge_operation(operationName, permittedIDs, requestedFolder, requestedNote, queryText, htmlBody)
@@ -144,6 +149,7 @@ on bridge_operation(operationName, permittedIDs, requestedFolder, requestedNote,
                             if operationName is "notes.read" and (my sameID(noteID, requestedNote)) then
                                 return {"read", my noteRecord(selectedNote, folderID, true)}
                             end if
+                            my checkBudget()
                             if operationName is "notes.search" and not (password protected of selectedNote) then
                                 my checkBudget()
                                 set noteTitle to name of selectedNote
