@@ -17,8 +17,9 @@ android {
     }
     lint {
         warningsAsErrors = true
-        // Dependencies are intentionally pinned to the supported SDK/toolchain.
-        disable += "GradleDependency"
+        // SDK/dependency upgrade notices vary with the runner's installed SDKs.
+        // Keep the initial API 35 target reproducible; correctness checks stay strict.
+        disable += setOf("GradleDependency", "OldTargetApi")
     }
 }
 
