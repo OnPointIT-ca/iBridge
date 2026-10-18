@@ -224,8 +224,8 @@ def main(argv=None):
                 subprocess.run([str(REPO / "scripts/build_macos_app.sh"), "--arch", args.arch,
                                 "--output", str(temporary / "native")], check=True)
             subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app_source)], check=True)
-            subprocess.run(["/usr/bin/lipo", "-verify_arch", platform.machine(),
-                            str(app_source / "Contents/MacOS/iBridgeHost")], check=True)
+            subprocess.run(["/usr/bin/lipo", str(app_source / "Contents/MacOS/iBridgeHost"),
+                            "-verify_arch", platform.machine()], check=True)
             runtime = temporary / "runtime"
             gateway = runtime / "gateway"
             gateway.mkdir(parents=True)
