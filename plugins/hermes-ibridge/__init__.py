@@ -1,6 +1,7 @@
 """Native Hermes plugin; importing and registering never makes network calls."""
 
 from . import tools
+from .operations import OPERATIONS
 
 
 def register(ctx):
@@ -18,3 +19,11 @@ def register(ctx):
         handler=tools.capabilities,
         requires_env=["IBRIDGE_URL", "IBRIDGE_TOKEN"],
     )
+    for operation in OPERATIONS:
+        ctx.register_tool(
+            name=operation.name,
+            toolset="ibridge",
+            schema=operation.schema,
+            handler=tools.make_handler(operation),
+            requires_env=["IBRIDGE_URL", "IBRIDGE_TOKEN"],
+        )

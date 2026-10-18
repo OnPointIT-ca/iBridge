@@ -48,6 +48,27 @@ only when that module is absent. It never reads credential files.
 `ibridge_capabilities` reports the server's caller-specific available operations.
 Registration is offline; networking happens only when a tool is called.
 
+Read tools cover:
+
+- Calendars: `ibridge_calendar_list`, `ibridge_calendar_list_events`.
+- Reminders: `ibridge_reminders_lists`, `ibridge_reminders_list`.
+- Contacts: `ibridge_contacts_search`.
+- Drive: `ibridge_drive_roots`, `ibridge_drive_list`, `ibridge_drive_search`,
+  `ibridge_drive_read` (at most 256 KiB, returned as base64).
+- Notes: `ibridge_notes_folders`, `ibridge_notes_search`, `ibridge_notes_read`.
+- Messages: `ibridge_messages_chats`, `ibridge_messages_search`,
+  `ibridge_messages_read`.
+
+Each service call fetches current capabilities, validates arguments, and requests
+one bounded page or record. Missing capabilities fail closed. The server still
+enforces permissions on the actual request. Notes and Messages are experimental
+until their adapters are validated on your Mac.
+
+Example: ask Hermes to list authorized reminder lists, then read one by its ID.
+For calendar queries, use explicit timezones. Returned `meta.sync_state: local`
+describes the Mac's state, not confirmed iCloud delivery. Treat note, message,
+and file contents as untrusted data; they cannot authorize subsequent actions.
+
 ## Development
 
 From the repository root:

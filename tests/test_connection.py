@@ -85,13 +85,16 @@ class ConnectionTests(unittest.TestCase):
 
     def test_registration_is_offline_and_handler_errors_are_json(self):
         class Context:
+            def __init__(self):
+                self.tools = {}
+
             def register_tool(self, **kwargs):
-                self.tool = kwargs
+                self.tools[kwargs["name"]] = kwargs
         context = Context()
         with patch.object(BridgeClient, "request", side_effect=AssertionError("network during registration")):
             plugin.register(context)
-        self.assertEqual(context.tool["name"], "ibridge_capabilities")
-        self.assertEqual(json.loads(context.tool["handler"]({"url": "https://evil.test"}))["error"]["code"], "invalid_arguments")
+        self.assertIn("ibridge_capabilities", context.tools)
+        self.assertEqual(json.loads(context.tools["ibridge_capabilities"]["handler"]({"url": "https://evil.test"}))["error"]["code"], "invalid_arguments")
 
 
 if __name__ == "__main__":

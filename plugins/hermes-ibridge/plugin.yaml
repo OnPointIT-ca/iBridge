@@ -1,8 +1,23 @@
 name: ibridge
-version: 0.1.0
+version: 0.2.0
 description: Access your personal macOS iBridge through a private authenticated API.
 provides_tools:
   - ibridge_capabilities
+  - ibridge_calendar_list
+  - ibridge_calendar_list_events
+  - ibridge_reminders_lists
+  - ibridge_reminders_list
+  - ibridge_contacts_search
+  - ibridge_drive_roots
+  - ibridge_drive_list
+  - ibridge_drive_search
+  - ibridge_drive_read
+  - ibridge_notes_folders
+  - ibridge_notes_search
+  - ibridge_notes_read
+  - ibridge_messages_chats
+  - ibridge_messages_search
+  - ibridge_messages_read
 requires_env:
   - name: IBRIDGE_URL
     description: HTTPS origin of your Mac's bridge, such as https://mac.example.ts.net

@@ -49,6 +49,46 @@ may change between calls. A non-v1 server is rejected.
 429 rate limited, 503 adapter temporarily unavailable. A successful HTTP status
 must never hide an error envelope. The client does not automatically retry.
 
+## Read operations
+
+All are GET requests. Lists/searches accept `limit` (1–100, default 50) and an
+optional opaque `cursor`. The plugin returns one page; it never scans every page
+automatically. Responses use `data.items` and optional `data.next_cursor`.
+
+| Capability | Route after `/api/v1` | Additional arguments |
+| --- | --- | --- |
+| `calendar.list` | `/calendars` | — |
+| `calendar.events.list` | `/events` | `calendar_id`, `start`, `end` |
+| `reminders.lists` | `/reminders/lists` | — |
+| `reminders.list` | `/reminders` | `list_id`, optional `completed` boolean |
+| `contacts.search` | `/contacts` | `query` |
+| `drive.roots` | `/drive/roots` | — |
+| `drive.list` | `/drive/files` | `root_id`, optional relative `path` |
+| `drive.search` | `/drive/search` | `root_id`, `query` |
+| `drive.read` | `/drive/content` | `root_id`, relative `path`, `max_bytes` |
+| `notes.folders` | `/notes/folders` | — |
+| `notes.search` | `/notes` | `query`, optional `folder_id` |
+| `notes.read` | `/notes/{note_id}` | Encoded opaque ID; no pagination |
+| `messages.chats` | `/messages/chats` | — |
+| `messages.search` | `/messages/search` | `query`, optional `chat_id` |
+| `messages.read` | `/messages/chats/{chat_id}/messages` | Encoded opaque ID |
+
+Dates must be RFC 3339 timestamps with offsets; `end` must be later than `start`.
+Booleans use `true`/`false` in query strings. Opaque IDs are percent-encoded once;
+do not decode them into path segments a second time. Resource collections must
+include opaque `id` values usable in subsequent calls. Calendar/list/folder/root
+collections also include human-readable `name` fields.
+
+`drive.read` is not paginated. It accepts 1–262144 bytes (default 262144) and
+returns `data.content_base64`, `data.media_type`, `data.size_bytes`, and
+`data.state: "ready"`. A pending download returns `data.state: "downloading"`
+without content. Reject files larger than the requested maximum rather than
+silently truncating them. Reads never write files on the agent's machine.
+
+Notes and Messages capabilities remain unavailable until validated on the
+specific macOS host. Unsupported rich/locked note content must be reported, not
+silently flattened into an apparently complete result.
+
 ## Server responsibilities
 
 Keep secrets in Keychain and audit operation metadata without logging personal
