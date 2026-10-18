@@ -127,6 +127,20 @@ class WriteToolsTests(unittest.TestCase):
                     self.assertEqual(result["error"]["code"], "invalid_arguments")
             network.assert_not_called()
 
+    def test_calendar_interval_bound_rejects_before_network_and_accepts_exact_limit(self):
+        body = {**CASES[0][2], "start": "2026-01-01T00:00:00Z", "request_id": REQUEST_ID}
+        with patch.object(BridgeClient, "request") as network:
+            for end in ["2027-01-02T00:00:01Z", "2027-01-02T01:00:01+01:00", "2028-01-01T00:00:00Z"]:
+                with self.subTest(end=end):
+                    result = self.invoke(CASES[0][0], {**body, "end": end}, "https://mac.test")
+                    self.assertEqual(result["error"]["code"], "invalid_arguments")
+                    self.assertNotIn("outcome", result["error"])
+            network.assert_not_called()
+        with server(self.fixture) as (url, requests):
+            result = self.invoke(CASES[0][0], {**body, "end": "2027-01-02T01:00:00+01:00"}, url)
+            self.assertEqual(result["data"]["state"], "saved")
+            self.assertEqual(len(requests), 2)
+
     def test_upload_validates_decoded_size_and_canonical_base64(self):
         name, _, body = CASES[4]
         for invalid in ["!not base64!", "YQ", "YQ==\n", "YR==", "____", base64.b64encode(b"x" * 262145).decode()]:
