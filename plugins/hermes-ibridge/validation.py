@@ -3,7 +3,7 @@
 import base64
 import binascii
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .client import BridgeError
 
@@ -60,8 +60,10 @@ def validate(operation, args):
                         raise ValueError("Noncanonical or oversized base64")
                 except (ValueError, binascii.Error):
                     raise BridgeError("invalid_arguments", "content_base64 must be canonical base64 for at most 262144 bytes.") from None
-    if "start" in values and "end" in values and timestamp(values["end"]) <= timestamp(values["start"]):
-        raise BridgeError("invalid_arguments", "end must be later than start.")
+    if "start" in values and "end" in values:
+        interval = timestamp(values["end"]) - timestamp(values["start"])
+        if not timedelta(0) < interval <= timedelta(days=366):
+            raise BridgeError("invalid_arguments", "The event interval must be positive and at most 366 days.")
     for key in operation.path_keys:
         if values[key] in {".", ".."}:
             raise BridgeError("invalid_arguments", "Resource IDs cannot be dot path segments.")

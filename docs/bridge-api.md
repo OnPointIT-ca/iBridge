@@ -88,7 +88,8 @@ automatically. Responses use `data.items` and optional `data.next_cursor`.
 | `messages.search` | `/messages/search` | `query`, optional `chat_id` |
 | `messages.read` | `/messages/chats/{chat_id}/messages` | Encoded opaque ID |
 
-Dates must be RFC 3339 timestamps with offsets; `end` must be later than `start`.
+Dates must be RFC 3339 timestamps with offsets; event read ranges and created
+event durations must be positive and at most 366 days after timezone conversion.
 Booleans use `true`/`false` in query strings. Opaque IDs are percent-encoded once;
 do not decode them into path segments a second time. Resource collections must
 include opaque `id` values usable in subsequent calls. Calendar/list/folder/root

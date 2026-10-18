@@ -86,6 +86,8 @@ jobs:
         env:
           BUILD_ARCH: ${{ matrix.arch }}
         run: scripts/build_macos_app.sh --arch "$BUILD_ARCH" --output build/package
+      - name: Hide the SwiftPM build tree to verify standalone resources
+        run: mv macos/.build "$RUNNER_TEMP/ibridge-native-build"
       - name: Inspect bundled host without prompts
         run: |
           python3 - <<'PY'
@@ -103,6 +105,13 @@ jobs:
             --app-destination "$RUNNER_TEMP/Applications With Spaces/iBridge.app" \
             --launch-agents-dir "$RUNNER_TEMP/iBridge LaunchAgents"
           scripts/ibridge.sh --home "$RUNNER_TEMP/iBridge State" client list
+          python3 - <<'PY_CHECK'
+          import os, pathlib, subprocess
+          temporary = pathlib.Path(os.environ['RUNNER_TEMP'])
+          env = dict(os.environ, IBRIDGE_HOME=str(temporary / 'iBridge State'))
+          executable = temporary / 'Applications With Spaces/iBridge.app/Contents/MacOS/iBridgeHost'
+          subprocess.run([str(executable), '--check'], check=True, timeout=30, env=env)
+          PY_CHECK
       - name: Preserve application permissions in download
         env:
           BUILD_ARCH: ${{ matrix.arch }}
@@ -112,3 +121,9 @@ jobs:
           name: iBridge-macos-${{ matrix.arch }}
           path: build/iBridge-macos-${{ matrix.arch }}.zip
           if-no-files-found: error
+      - name: Restore SwiftPM build tree
+        if: always()
+        run: |
+          if [[ -d "$RUNNER_TEMP/ibridge-native-build" ]]; then
+            mv "$RUNNER_TEMP/ibridge-native-build" macos/.build
+          fi

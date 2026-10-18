@@ -66,7 +66,7 @@ def launch_agents(state, app, runtime, node, gateway_environment=None):
         "Umask": 0o077,
     }
     result = {
-        LABELS[0]: dict(common, Label=LABELS[0],
+        LABELS[0]: dict(common, Label=LABELS[0], KeepAlive={"SuccessfulExit": False},
                        ProgramArguments=[str(app / "Contents/MacOS/iBridgeHost"), "--serve"],
                        ProcessType="Interactive", LimitLoadToSessionType="Aqua",
                        StandardOutPath=str(state / "logs/host.stdout.log"),

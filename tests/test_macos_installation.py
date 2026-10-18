@@ -60,7 +60,7 @@ class MacInstallerTests(unittest.TestCase):
                 document = plistlib.load(handle)
             self.assertEqual(document["EnvironmentVariables"]["IBRIDGE_HOME"], str(self.state))
             self.assertIs(document["RunAtLoad"], True)
-            self.assertIs(document["KeepAlive"], True)
+            self.assertEqual(document["KeepAlive"], {"SuccessfulExit": False} if label == installer.LABELS[0] else True)
             self.assertEqual(document["Umask"], 0o077)
         host = plistlib.loads((self.agents / (installer.LABELS[0] + ".plist")).read_bytes())
         gateway = plistlib.loads((self.agents / (installer.LABELS[1] + ".plist")).read_bytes())
