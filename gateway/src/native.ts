@@ -41,7 +41,7 @@ export class NativeClient implements NativeTransport {
           if (!isObject(response) || response.id !== id || (Object.hasOwn(response,'error') && Object.hasOwn(response,'result'))) {fail(); return;}
           if (isObject(response.error)) {
             const error = response.error;
-            const known = new Set(['permission_denied','permission_required','not_found','conflict','invalid_arguments','unsupported_arguments','adapter_unavailable','download_pending','request_too_large','invalid_cursor','outcome_unknown']);
+            const known = new Set(['permission_denied','permission_required','not_found','conflict','invalid_arguments','unsupported_arguments','unsupported_operation','adapter_unavailable','download_pending','request_too_large','payload_too_large','invalid_cursor','outcome_unknown']);
             const status = typeof error.status === 'number' && Number.isInteger(error.status) && error.status >= 400 && error.status <= 599 ? error.status : 503;
             const outcome = error.outcome === 'none' ? 'none' : 'unknown';
             const code = typeof error.code === 'string' && known.has(error.code) ? error.code : 'adapter_unavailable';

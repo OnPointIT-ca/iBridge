@@ -7,6 +7,8 @@ final class HostModel: ObservableObject {
     @Published var running = false
     @Published var message = "Starting native host…"
     @Published var permissions: [String: String] = [:]
+    @Published var notesEnabled = false
+    @Published var messagesEnabled = false
     @Published var roots: [RootRow] = []
     private var service: NativeService?
     private var server: UnixSocketServer?
@@ -32,7 +34,9 @@ final class HostModel: ObservableObject {
 
     func refresh() {
         guard let service else { return }
-        permissions = service.apple.permissionSummary
+        permissions = service.permissionSummary
+        notesEnabled = service.settings.notesEnabled
+        messagesEnabled = service.settings.messagesEnabled
         roots = service.drive.selectedRoots.compactMap {
             guard let id = $0["id"] as? String, let name = $0["name"] as? String else { return nil }
             return RootRow(id: id, name: name)
@@ -68,6 +72,41 @@ final class HostModel: ObservableObject {
         refresh()
     }
 
+    func toggleNotes() {
+        guard let service else { return }
+        Task {
+            do {
+                if service.settings.notesEnabled {
+                    try service.settings.setNotesEnabled(false)
+                    message = "Notes access disabled"
+                } else {
+                    try await service.notes.requestPermission()
+                    try service.settings.setNotesEnabled(true)
+                    message = "Notes enabled. Grant folder IDs to the clients that should have access."
+                }
+            } catch {
+                message = "Notes could not be enabled. Review iBridge → Notes in System Settings → Privacy & Security → Automation."
+            }
+            refresh()
+        }
+    }
+
+    func toggleMessages() {
+        guard let service else { return }
+        do {
+            try service.settings.setMessagesEnabled(!service.settings.messagesEnabled)
+            message = service.settings.messagesEnabled
+                ? "Messages history enabled. Grant Full Disk Access to iBridge in System Settings, then restart iBridge if requested."
+                : "Messages history access disabled"
+        } catch { message = "Messages access settings could not be saved." }
+        refresh()
+    }
+
+    func openFullDiskAccessSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     func removeFolder(_ id: String) {
         do {
             try service?.drive.removeRoot(id: id)
@@ -88,45 +127,69 @@ struct HostApplication: App {
 
     var body: some Scene {
         MenuBarExtra("iBridge", systemImage: model.running ? "link.circle.fill" : "exclamationmark.circle") {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("iBridge").font(.headline)
-                Text(model.message).font(.caption).fixedSize(horizontal: false, vertical: true)
-                Divider()
-                ForEach(["calendar", "reminders", "contacts"], id: \.self) { name in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("iBridge").font(.headline)
+                    Text(model.message).font(.caption).fixedSize(horizontal: false, vertical: true)
+                    Divider()
+                    ForEach(["calendar", "reminders", "contacts"], id: \.self) { name in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(name.capitalized)
+                                Text(model.permissions[name] ?? "unknown").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Request Access") { model.grant(name) }
+                        }
+                    }
+                    Divider()
                     HStack {
                         VStack(alignment: .leading) {
-                            Text(name.capitalized)
-                            Text(model.permissions[name] ?? "unknown").font(.caption).foregroundStyle(.secondary)
+                            Text("Notes")
+                            Text(model.permissions["notes"] ?? "disabled").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Request Access") { model.grant(name) }
+                        Button(model.notesEnabled ? "Disable Notes" : "Enable Notes…") { model.toggleNotes() }
                     }
-                }
-                Divider()
-                Text("Authorized folders").font(.subheadline)
-                if model.roots.isEmpty { Text("No folders selected").font(.caption).foregroundStyle(.secondary) }
-                ForEach(model.roots) { root in
+                    Text("Reads ordinary unlocked notes and creates new notes in client-authorized folders.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack {
                         VStack(alignment: .leading) {
-                            Text(root.name).lineLimit(1)
-                            Text(root.id).font(.caption2).textSelection(.enabled)
+                            Text("Messages history")
+                            Text(model.permissions["messages"] ?? "disabled").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Remove") { model.removeFolder(root.id) }
+                        Button(model.messagesEnabled ? "Disable History" : "Enable History") { model.toggleMessages() }
+                    }
+                    Text("Reads local conversations. Requires Full Disk Access for iBridge and conversation grants for each client.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button("Open Full Disk Access Settings") { model.openFullDiskAccessSettings() }
+                    Divider()
+                    Text("Authorized folders").font(.subheadline)
+                    if model.roots.isEmpty { Text("No folders selected").font(.caption).foregroundStyle(.secondary) }
+                    ForEach(model.roots) { root in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(root.name).lineLimit(1)
+                                Text(root.id).font(.caption2).textSelection(.enabled)
+                            }
+                            Spacer()
+                            Button("Remove") { model.removeFolder(root.id) }
+                        }
+                    }
+                    Button("Add Folder…") { model.selectFolder() }
+                    Text("Remote requests never show permission prompts. Messages access is read-only.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Divider()
+                    HStack {
+                        Button("Refresh Status") { model.refresh() }
+                        Spacer()
+                        Button("Quit") { model.quit() }
                     }
                 }
-                Button("Add Folder…") { model.selectFolder() }
-                Text("Remote requests never show permission prompts. Notes and Messages are unavailable in this MVP.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Divider()
-                HStack {
-                    Button("Refresh Status") { model.refresh() }
-                    Spacer()
-                    Button("Quit") { model.quit() }
-                }
-            }
-            .padding().frame(width: 390)
-            .onAppear { model.refresh() }
+                .padding().frame(width: 390)
+                .onAppear { model.refresh() }
+            }.frame(maxHeight: 660)
         }
         .menuBarExtraStyle(.window)
     }
