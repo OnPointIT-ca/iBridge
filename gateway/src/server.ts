@@ -8,10 +8,12 @@ export interface ServerOptions {service: BridgeService; allowedHosts?: string[];
 export async function buildServer(options: ServerOptions): Promise<FastifyInstance> {
   const app = Fastify({logger:false,bodyLimit:1024*1024,requestTimeout:30000,connectionTimeout:30000,
     routerOptions:{maxParamLength:2048},ajv:{customOptions:{coerceTypes:false,removeAdditional:false}}});
-  app.addHook('onRequest',async request => {
+  app.addHook('onRequest',async (request,reply) => {
+    reply.header('Cache-Control','no-store');
+    reply.header('X-Content-Type-Options','nosniff');
     const address = app.server.address();
     const port = typeof address === 'object' && address ? address.port : options.port ?? 21420;
-    const hosts = options.allowedHosts ?? [`127.0.0.1:${port}`,`localhost:${port}`];
+    const hosts = options.allowedHosts ?? [`127.0.0.1:${port}`,`localhost:${port}`,`[::1]:${port}`];
     if (!request.headers.host || !hosts.includes(request.headers.host.toLowerCase())) throw new BridgeError(403,'permission_denied','The request Host is not allowed.');
     // This service accepts agent connections, not browser requests; no CORS is enabled.
     if (request.headers.origin) throw new BridgeError(403,'permission_denied','Browser origins are not allowed.');
@@ -26,6 +28,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     if (safe.status === 401) reply.header('WWW-Authenticate','Bearer realm="iBridge"');
     reply.code(safe.status).send(safe.toEnvelope());
   });
+  app.setNotFoundHandler(async () => {throw new BridgeError(404,'not_found','Unknown API route.');});
   app.get('/api/v1/system/capabilities',async request => {
     if (Object.keys(request.query as object).length) throw new BridgeError(400,'invalid_arguments','This route takes no query arguments.');
     return options.service.capabilities(options.service.authenticate(request.headers.authorization));

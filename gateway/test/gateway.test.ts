@@ -39,7 +39,7 @@ async function fixture(t: TestContext) {
   let token = client.token;
   t.after(async()=>{await app.close();store.close();for(const socket of sockets)socket.destroy();await new Promise<void>(resolve=>native.close(()=>resolve()));rmSync(home,{recursive:true,force:true});});
   return {
-    home,calls,client,get store(){return store;},get address(){return address;},
+    home,calls,client,get app(){return app;},get store(){return store;},get address(){return address;},
     set token(value:string){token=value;},set respond(fn:typeof respond){respond=fn;},set fault(value:typeof fault){fault=value;},
     async request(path:string,options:{body?:unknown;key?:string;headers?:Record<string,string>;method?:string}={}) {
       const response=await fetch(address+path,{method:options.method??(options.body===undefined?'GET':'POST'),headers:{Authorization:`Bearer ${token}`,...(options.body!==undefined?{'Content-Type':'application/json'}:{}),...(options.key?{'Idempotency-Key':options.key}:{}),...options.headers},...(options.body!==undefined?{body:JSON.stringify(options.body)}:{})});
@@ -68,10 +68,11 @@ test('real HTTP and UDS: per-client capabilities, query conversion and collectio
 
 test('invalid credentials, host, browser origins and scopes never dispatch',async t=>{
   const f=await fixture(t);
-  for (const headers of [{Authorization:'Bearer bogus'},{Host:'attacker.example'},{Origin:'https://attacker.example'}]) {
+  for (const headers of [{Authorization:'Bearer bogus'},{Origin:'https://attacker.example'}]) {
     const response=await f.request('/api/v1/calendars',{headers});
     assert.ok([401,403].includes(response.status));
   }
+  assert.equal((await f.app.inject({method:'GET',url:'/api/v1/calendars',headers:{host:'attacker.example',authorization:`Bearer ${f.client.token}`}})).statusCode,403);
   assert.equal(f.calls.length,0);
   const limited=f.store.createClient({name:'empty'});f.token=limited.token;
   assert.equal((await f.request('/api/v1/calendars')).status,403);
