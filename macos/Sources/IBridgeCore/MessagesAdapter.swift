@@ -208,10 +208,10 @@ private final class MessagesDatabase {
     private(set) var rowsTruncated = false
 
     init(url: URL) throws {
-        try Self.validatePath(url)
+        let path = try Self.validatePath(url)
         // NOFOLLOW also guards replacement of the final path between lstat/open.
         let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_NOFOLLOW
-        guard sqlite3_open_v2(url.path, &handle, flags, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(path, &handle, flags, nil) == SQLITE_OK else {
             if let handle { sqlite3_close(handle) }; handle = nil
             throw NativeError("adapter_unavailable", "Messages history cannot be opened. Check Full Disk Access and the local Messages account.", status: 503)
         }
@@ -333,7 +333,7 @@ private final class MessagesDatabase {
         NativeError("adapter_unavailable", "Messages history is busy, unsupported, or could not be read within the query limit.", status: 503)
     }
 
-    private static func validatePath(_ url: URL) throws {
+    private static func validatePath(_ url: URL) throws -> String {
         let parent = url.deletingLastPathComponent()
         guard url.isFileURL, parent.standardizedFileURL == parent.resolvingSymlinksInPath().standardizedFileURL else {
             throw NativeError("permission_denied", "The Messages database path must not contain symbolic links.", status: 403)
@@ -354,6 +354,14 @@ private final class MessagesDatabase {
             throw NativeError("permission_denied", "Messages history needs Full Disk Access in macOS Privacy & Security settings.", status: 403)
         }
         close(descriptor)
+        // Foundation may normalize the resolved /private/var spelling back to
+        // /var on macOS. SQLite NOFOLLOW checks every path component, so use
+        // POSIX's physical parent spelling after the symlink checks above.
+        guard let physicalParent = realpath(parent.path, nil) else {
+            throw NativeError("permission_denied", "The Messages database directory cannot be resolved.", status: 403)
+        }
+        defer { free(physicalParent) }
+        return String(cString: physicalParent) + "/" + url.lastPathComponent
     }
 }
 
