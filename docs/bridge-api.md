@@ -1,10 +1,10 @@
 # iBridge HTTP contract v1
 
-This is the proposed server contract consumed by the Hermes plugin. There is no
-production server or macOS adapter in this repository yet. Read and write tests
-serve HTTP fixtures for this contract; they do not validate live Apple access,
-macOS permissions, server durability, or iCloud synchronization. A compatible
-server must implement the requirements below before enabling write capabilities.
+This is the v1 contract implemented by the TypeScript gateway and consumed by
+the Hermes plugin. The Swift host implements Calendar, Reminders, Contacts, and
+selected Drive folders. Notes and Messages operations below are reserved and
+reported unavailable. See [Mac setup](macos-setup.md) for deployment and live
+acceptance checks; automated fixtures do not establish access to your Apple data.
 
 ## Transport and identity
 
@@ -138,7 +138,7 @@ seconds are not supported by this client. Titles are 1–512 characters; optiona
 `notes` and required Notes `body` allow 0–65536 characters. Optional `location`
 allows 1–2048 characters. All are plain text: adapters must escape content before
 using an HTML or application-automation interface, never execute or interpret
-it as code. Notes writes remain experimental until tested on the host Mac.
+it as code. Notes writes are unavailable in the MVP.
 
 Drive writes create a new file only. `content_base64` must be canonical standard
 base64 for 0–262144 decoded bytes (256 KiB). `path` is a nonempty relative
@@ -225,14 +225,18 @@ server must:
 Apple-service writes and the bridge's own database cannot generally share one
 transaction. This contract does not promise exactly-once execution. Where the
 adapter cannot establish the prior outcome, it must leave the operation
-uncertain for reconciliation rather than risk a duplicate. The repository's
-HTTP fixtures test the client's key preservation and no-retry behavior, not
-these server durability or Apple-service guarantees.
+uncertain for reconciliation rather than risk a duplicate. The gateway keeps
+completed, rejected, pending, and uncertain records indefinitely; there is no
+automatic key expiry or pruning. Its journal stores fingerprints and completion
+receipts, not request bodies. Real gateway tests exercise replay, restart, and
+lost native replies using an IPC fixture. Live Apple saves and iCloud delivery
+require separate acceptance checks on the Mac.
 
 ## Server responsibilities
 
-Keep secrets in Keychain and audit operation metadata without logging personal
-content by default. Enforce scopes and selected calendar/list/folder boundaries
+The gateway stores token hashes, never retrievable bearer tokens, in its private
+SQLite database. Keep remote tokens in the agent's secret settings. Audit
+operation metadata without logging personal content by default. Enforce scopes and selected calendar/list/folder boundaries
 on every request, including symlink-safe filesystem access. Never interpret note
 or message content as authorization. Cloud placeholders need explicit download
 states and bounded waits. Never claim a local save is confirmed iCloud delivery.
