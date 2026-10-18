@@ -21,7 +21,9 @@ host's socket. Gateway disconnect/restart must preserve uncertain write records.
   "resources": {
     "calendar_ids": [],
     "reminder_list_ids": ["native-list-id"],
-    "drive_root_ids": []
+    "drive_root_ids": [],
+    "note_folder_ids": [],
+    "message_chat_ids": []
   },
   "request_id": "stable-external-write-id"
 }
@@ -34,12 +36,16 @@ before dispatch and never re-dispatches uncertain pending requests.
 
 `resources` is the authenticated client's policy supplied by the local gateway.
 Missing/empty collections allow no resources. `["*"]` explicitly grants all
-currently authorized resources in that collection. Calendar/list operations
-filter results to allowed IDs; reads/writes validate the selected ID every time.
+currently authorized resources in that collection. Legacy policies missing the
+Notes/Messages fields also deny those services, even with wildcard operation
+scopes. Calendar/list/folder/conversation operations filter results to allowed
+IDs; reads/writes validate the selected ID every time.
 Drive root IDs are opaque IDs assigned by the Mac app to user-selected bookmark
 locations. They are never arbitrary paths supplied by a remote client. Contacts
 access is gated by the operation scope and macOS permission, with no per-contact
-resource selector in this MVP.
+resource selector in this MVP. Notes folder grants are exact, with no implicit
+subfolder access; `notes.read` resolves and checks the actual containing folder.
+Notes and Messages searches that omit a container still enforce these policies.
 
 Success:
 
@@ -68,9 +74,14 @@ Capabilities reflect current native permissions, resource policy, and implemente
 operations. Remote calls must never open permission prompts; the Mac menu app
 owns explicit permission and directory-selection actions.
 
-The MVP implements Calendar, Reminders, Contacts, and selected Drive roots.
-Notes and Messages operations are unavailable. Keep SIP enabled. The shared
-operation catalog is generated from the Hermes schemas into
+The host implements Calendar, Reminders, Contacts, selected Drive roots, Notes
+Automation, and read-only local Messages history. Notes and Messages each require
+a separate local opt-in in `adapter-settings.json` (private mode 0600), plus macOS
+permission and explicit client container grants. Both start disabled. Remote
+requests cannot change these settings, request permission, or select a database
+path. Messages always uses the current user's `~/Library/Messages/chat.db` and
+guards its private schema. See [adapter limits](notes-messages.md). Keep SIP
+enabled. The shared operation catalog is generated from the Hermes schemas into
 `shared/operations.json`; the HTTP gateway and MCP use that catalog and the same
 authorization/command layer.
 

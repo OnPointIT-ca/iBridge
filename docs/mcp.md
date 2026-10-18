@@ -37,9 +37,13 @@ authenticated REST API directly.
 
 `ibridge_capabilities` returns the current client-specific capability envelope.
 `tools/list` includes it plus the currently available operations from
-[`shared/operations.json`](../shared/operations.json). The MVP implements Calendar,
-Reminders, Contacts, and authorized Drive roots. Notes and Messages remain
-unavailable. A tool disappearing from discovery does not replace authorization:
+[`shared/operations.json`](../shared/operations.json). The host implements Calendar,
+Reminders, Contacts, authorized Drive roots, optional Notes Automation, and optional
+read-only Messages history. Notes/Messages tools appear only after local enablement,
+macOS access, and explicit folder/conversation policy grants. Existing wildcard
+operation tokens do not gain those resource grants. See
+[Notes and Messages setup](notes-messages.md). A tool disappearing from discovery
+does not replace authorization:
 every `tools/call` independently validates its operation and resource permissions.
 
 Read results and write receipts appear in both `structuredContent` and a JSON text

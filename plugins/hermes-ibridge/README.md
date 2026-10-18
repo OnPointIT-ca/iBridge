@@ -133,7 +133,18 @@ No tool sends messages, deletes data, performs bulk changes, or approves itself.
 Each service call validates arguments and fetches current capabilities. Reads
 return one bounded page or record. Missing capabilities fail closed. The server
 still enforces permissions on the actual request. Notes and Messages are
-unavailable in the MVP; their tools fail closed until an adapter is implemented.
+implemented but start disabled on the Mac. Enable Notes Automation or Messages
+history locally, grant the required macOS access, and issue explicit
+`--note-folder-ids` / `--message-chat-ids` client scopes. Existing wildcard
+operation tokens do not gain these resource grants. See
+[Notes and Messages setup](../../docs/notes-messages.md).
+
+Notes return unlocked plain text, including the note title, with metadata stating
+that rich formatting and attachments are not preserved. Folder grants do not
+include subfolders implicitly. Messages reads/searches cover a bounded window of
+local history; check `body_status`, `scan_truncated`, and `search_complete` before
+treating results as complete. Supported archived text is decoded safely;
+unsupported bodies are marked, and attachment files are never read.
 
 Example: ask Hermes to list authorized reminder lists, then read one by its ID.
 For calendar queries, use explicit timezones. Returned `meta.sync_state: local`
