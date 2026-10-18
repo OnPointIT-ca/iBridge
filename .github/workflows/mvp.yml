@@ -88,6 +88,20 @@ jobs:
         run: scripts/build_macos_app.sh --arch "$BUILD_ARCH" --output build/package
       - name: Hide the SwiftPM build tree to verify standalone resources
         run: mv macos/.build "$RUNNER_TEMP/ibridge-native-build"
+      - name: Verify packaged Notes script and Automation permission declarations
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, plistlib, subprocess
+          app = pathlib.Path('build/package/iBridge.app')
+          info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+          assert info['NSAppleEventsUsageDescription']
+          signed = subprocess.run(['/usr/bin/codesign', '-d', '--entitlements', ':-', str(app)],
+                                  check=True, capture_output=True)
+          assert plistlib.loads(signed.stdout)['com.apple.security.automation.apple-events'] is True
+          script = app / 'Contents/Resources/iBridge_IBridgeCore.bundle/Notes.applescript'
+          subprocess.run(['/usr/bin/osacompile', '-o', os.path.join(os.environ['RUNNER_TEMP'], 'ibridge-notes.scpt'),
+                          str(script)], check=True, timeout=30)
+          PY
       - name: Inspect bundled host without prompts
         run: |
           python3 - <<'PY'
