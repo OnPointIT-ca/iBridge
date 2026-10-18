@@ -1,0 +1,12 @@
+name: ibridge
+version: 0.1.0
+description: Access your personal macOS iBridge through a private authenticated API.
+provides_tools:
+  - ibridge_capabilities
+requires_env:
+  - name: IBRIDGE_URL
+    description: HTTPS origin of your Mac's bridge, such as https://mac.example.ts.net
+    secret: false
+  - name: IBRIDGE_TOKEN
+    description: Client token issued by your iBridge server
+    secret: true
