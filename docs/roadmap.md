@@ -44,7 +44,12 @@ followed by login. Mac unavailability is not an empty successful search.
 
 ## Deferred
 
-Public hosting, accounts/billing, multi-user administration, mobile clients,
+The [Android client](../android/README.md) implements the v1 read operations,
+encrypted connection storage, and explicit pagination. Its live acceptance work
+depends on the same Mac host/gateway milestone above. Android writes and native
+Android Contacts/Calendar synchronization remain future work.
+
+Public hosting, accounts/billing, multi-user administration,
 automatic updating, broad provider abstraction, and full-content indexing.
 Message sending, destructive actions, and bulk writes need approvals bound to
 exact operations; no plugin tool should grant its own approval.

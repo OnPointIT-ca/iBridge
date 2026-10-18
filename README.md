@@ -19,6 +19,7 @@ not demonstrate live access to Apple services.
 | Capability discovery and read tools | Implemented for the six planned service modules |
 | Controlled write tools | Implemented; event/reminder/note creation, reminder completion, create-only file uploads |
 | Installer and Hermes compatibility checks | Implemented; profile-aware installer, pinned upstream checks, GitHub CI |
+| Android client | Read-only v1 client implemented; HTTPS connection, encrypted token storage, capability discovery, six service browsers, and small Drive file export; live Mac integration pending |
 | Swift host and macOS permission setup | Planned |
 | TypeScript REST/MCP gateway | Planned; [v1 HTTP contract](docs/bridge-api.md) defined |
 | Live Apple adapters and synchronization | Planned; need validation on your Mac |
@@ -76,6 +77,19 @@ and `ibridge_drive_upload`. Each requires a stable `request_id`; if an outcome
 is unknown, reconcile it before retrying and preserve the same key and arguments.
 The server must implement durable idempotency. The plugin alone cannot prevent
 duplicates after a server crash. Uploads create new files and never overwrite.
+
+## Android app
+
+The [native Android app](android/README.md) uses the same v1 server contract and
+client-specific tokens. It browses Calendar, Reminders, Contacts, iCloud Drive,
+Notes, and Messages according to the server's available capabilities. It supports
+Android 8.0 and newer, stores saved credentials with Android Keystore encryption,
+and exports small Drive files through the system file picker. Android access is
+read-only in this first version; it does not sign in to iCloud directly or sync
+into Android's system apps. A reachable, compatible Mac bridge is still required.
+
+Build, test, and install instructions are in [android/README.md](android/README.md).
+Client fixture tests must not be treated as live Apple service validation.
 
 ## Behavior and limitations
 

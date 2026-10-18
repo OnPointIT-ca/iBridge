@@ -8,3 +8,9 @@ __pycache__/
 .build/
 node_modules/
 dist/
+android/.gradle/
+android/**/build/
+android/local.properties
+android/.idea/
+*.jks
+*.keystore
