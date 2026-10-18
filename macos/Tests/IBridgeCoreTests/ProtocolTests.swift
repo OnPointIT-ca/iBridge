@@ -90,7 +90,35 @@ final class ProtocolTests: XCTestCase {
         XCTAssertThrowsError(try Pagination.page(items, arguments: ["cursor": "not-base64"], context: "query"))
     }
 
+    func testPaginationBindsNativeQueryArgumentsEvenWhenResultsMatch() throws {
+        let items: [JSONObject] = [["id": "a"], ["id": "b"]]
+        let first = try Pagination.page(items, arguments: ["query": "first", "limit": 1], context: "contacts.search")
+        let cursor = try XCTUnwrap(first["next_cursor"] as? String)
+        XCTAssertThrowsError(try Pagination.page(items, arguments: ["query": "different", "cursor": cursor], context: "contacts.search"))
+        XCTAssertNoThrow(try Pagination.page(items, arguments: ["query": "first", "cursor": cursor, "limit": 50], context: "contacts.search"))
+    }
+
+    @MainActor
+    func testArgumentRejectionPreservesRequestIdentityAndKnownNoEffect() async throws {
+        let object: JSONObject = [
+            "id": "correlated-write", "operation": "calendar.events.create", "request_id": "request-123",
+            "arguments": ["calendar_id": "denied", "title": "Test", "start": "2026-01-01T00:00:00Z", "end": "2028-01-01T00:00:00Z"],
+            "resources": [:]
+        ]
+        let request = try NativeRequest.decode(JSONSerialization.data(withJSONObject: object))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = try NativeService(stateDirectory: directory)
+        let response = await service.execute(request)
+        XCTAssertEqual(response["id"] as? String, "correlated-write")
+        let error = try XCTUnwrap(response["error"] as? JSONObject)
+        XCTAssertEqual(error["status"] as? Int, 400)
+        XCTAssertEqual(error["outcome"] as? String, "none")
+    }
+
     private func decode(_ object: JSONObject) throws -> NativeRequest {
-        try NativeRequest.decode(JSONSerialization.data(withJSONObject: object))
+        let request = try NativeRequest.decode(JSONSerialization.data(withJSONObject: object))
+        try NativeValidation.validate(request)
+        return request
     }
 }

@@ -81,7 +81,8 @@ public struct NativeRequest {
         }
         let request = NativeRequest(id: id, operation: operation, arguments: arguments,
                                     resources: ResourcePolicy(policy), requestID: object["request_id"] as? String)
-        try NativeValidation.validate(request)
+        // Preserve the exchange ID for schema failures. NativeService validates
+        // arguments and returns a correlated rejection before invoking adapters.
         return request
     }
 }
@@ -222,8 +223,10 @@ public enum Pagination {
         guard (1...100).contains(limit) else { throw NativeError("invalid_arguments", "The page limit is invalid.") }
         // Bind cursors to query and current result set. Changed data requires restarting
         // the query rather than silently skipping records between requests.
-        let encoded = try JSONSerialization.data(withJSONObject: items, options: [.sortedKeys])
-        let digest = SHA256.hash(data: Data(context.utf8) + encoded).map { String(format: "%02x", $0) }.joined()
+        let query = arguments.filter { $0.key != "cursor" && $0.key != "limit" }
+        let fingerprint: JSONObject = ["context": context, "query": query, "items": items]
+        let encoded = try JSONSerialization.data(withJSONObject: fingerprint, options: [.sortedKeys])
+        let digest = SHA256.hash(data: encoded).map { String(format: "%02x", $0) }.joined()
         var offset = 0
         if let cursor = arguments["cursor"] as? String {
             guard let bytes = Data(base64Encoded: cursor), let text = String(data: bytes, encoding: .utf8) else {
