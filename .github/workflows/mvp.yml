@@ -1,0 +1,99 @@
+name: iBridge MVP
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  components:
+    runs-on: ubuntu-latest
+    outputs:
+      native: ${{ steps.detect.outputs.native }}
+      gateway: ${{ steps.detect.outputs.gateway }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: detect
+        shell: bash
+        run: |
+          if [[ -f macos/Package.swift ]]; then echo 'native=true' >> "$GITHUB_OUTPUT"; fi
+          if [[ -f gateway/package-lock.json ]]; then echo 'gateway=true' >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/export_operations.py --check
+      - run: python -m unittest discover -s tests -p 'test_macos_installation.py' -v
+      - run: bash -n scripts/build_macos_app.sh
+
+  gateway:
+    needs: components
+    if: needs.components.outputs.gateway == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - run: npm ci
+        working-directory: gateway
+      - run: npm run build
+        working-directory: gateway
+      - run: npm test
+        working-directory: gateway
+
+  macos:
+    needs: components
+    if: needs.components.outputs.native == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Confirm hardware architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: test "$(uname -m)" = "$EXPECTED_ARCH"
+      - name: Test native code without Apple account access
+        run: swift test --package-path macos
+      - name: Build and verify signed application
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: scripts/build_macos_app.sh --arch "$BUILD_ARCH" --output build/package
+      - name: Inspect bundled host without prompts
+        run: |
+          python3 - <<'PY'
+          import os, subprocess, tempfile
+          with tempfile.TemporaryDirectory(prefix='ibridge-ci-') as state:
+              env = dict(os.environ, IBRIDGE_HOME=state)
+              subprocess.run(['build/package/iBridge.app/Contents/MacOS/iBridgeHost', '--check'],
+                             check=True, timeout=30, env=env)
+          PY
+      - name: Preserve application permissions in download
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: ditto -c -k --sequesterRsrc --keepParent build/package/iBridge.app "build/iBridge-macos-$BUILD_ARCH.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iBridge-macos-${{ matrix.arch }}
+          path: build/iBridge-macos-${{ matrix.arch }}.zip
+          if-no-files-found: error
