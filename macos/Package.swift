@@ -9,7 +9,7 @@ let package = Package(
         .library(name: "IBridgeCore", targets: ["IBridgeCore"])
     ],
     targets: [
-        .target(name: "IBridgeCore", resources: [.copy("Resources/operations.json")]),
+        .target(name: "IBridgeCore", resources: [.copy("Resources/operations.json"), .copy("Resources/Notes.applescript")]),
         .executableTarget(name: "iBridgeHost", dependencies: ["IBridgeCore"]),
         .testTarget(name: "IBridgeCoreTests", dependencies: ["IBridgeCore"])
     ]
