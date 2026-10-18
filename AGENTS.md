@@ -13,3 +13,8 @@
 - Keep credentials and personal Apple data out of code, fixtures, and logs.
 - Keep System Integrity Protection enabled. Use supported APIs and authorized
   application automation; do not write directly to Apple application databases.
+- The user explicitly approved an optional, read-only Messages history adapter
+  using the local Messages database and a user-granted Full Disk Access permission.
+  This exception does not permit database writes, message sending, permission
+  bypasses, or remote selection of arbitrary database paths. Enable it locally
+  and enforce per-client conversation scopes; use automation for Notes.

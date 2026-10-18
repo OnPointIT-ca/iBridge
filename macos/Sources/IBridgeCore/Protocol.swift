@@ -23,6 +23,8 @@ public enum ResourceCollection: String {
     case calendars = "calendar_ids"
     case reminderLists = "reminder_list_ids"
     case driveRoots = "drive_root_ids"
+    case notesFolders = "note_folder_ids"
+    case messageChats = "message_chat_ids"
 }
 
 public struct ResourcePolicy {
@@ -37,6 +39,10 @@ public struct ResourcePolicy {
 
     public func hasAny(_ collection: ResourceCollection) -> Bool {
         !(values[collection.rawValue] ?? []).isEmpty
+    }
+
+    public func identifiers(for collection: ResourceCollection) -> [String] {
+        values[collection.rawValue] ?? []
     }
 }
 
@@ -65,7 +71,7 @@ public struct NativeRequest {
             throw NativeError("invalid_request", "The native request is invalid.")
         }
         var policy: [String: [String]] = [:]
-        let keys = Set(["calendar_ids", "reminder_list_ids", "drive_root_ids"])
+        let keys = Set(["calendar_ids", "reminder_list_ids", "drive_root_ids", "note_folder_ids", "message_chat_ids"])
         guard Set(resources.keys).isSubset(of: keys) else {
             throw NativeError("invalid_request", "The resource policy is invalid.")
         }

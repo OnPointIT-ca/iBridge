@@ -18,6 +18,19 @@ final class ProtocolTests: XCTestCase {
         XCTAssertFalse(policy.allows(.reminderLists, id: "personal"))
         XCTAssertTrue(policy.allows(.driveRoots, id: "root"))
         XCTAssertFalse(policy.allows(.driveRoots, id: "other"))
+        XCTAssertFalse(policy.hasAny(.notesFolders))
+        XCTAssertFalse(policy.hasAny(.messageChats))
+    }
+
+    func testNotesAndMessagesPoliciesAreIndependentAndDenyWhenMissing() throws {
+        let request = try decode(["id": "rpc", "operation": "messages.chats", "arguments": [:],
+                                  "resources": ["note_folder_ids": ["folder-1"], "message_chat_ids": ["chat-1"]]])
+        XCTAssertEqual(request.resources.identifiers(for: .notesFolders), ["folder-1"])
+        XCTAssertTrue(request.resources.allows(.messageChats, id: "chat-1"))
+        XCTAssertFalse(request.resources.allows(.messageChats, id: "folder-1"))
+        XCTAssertFalse(request.resources.allows(.notesFolders, id: "chat-1"))
+        XCTAssertTrue(ResourcePolicy(["note_folder_ids": ["*"]]).allows(.notesFolders, id: "any-folder"))
+        XCTAssertFalse(ResourcePolicy(["note_folder_ids": ["*"]]).hasAny(.messageChats))
     }
 
     func testUnknownKeysAndInvalidPolicyRejected() {
