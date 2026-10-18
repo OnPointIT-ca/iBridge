@@ -1,0 +1,8 @@
+# Developer checks only; the plugin itself has no third-party dependencies.
+# Hermes dependencies needed by the pinned CLI's plugin validation commands.
+rich==14.3.3
+ruamel.yaml==0.18.16
+python-dotenv==1.2.2
+packaging==26.0
+# Validate model-facing tool schemas during the test suite.
+jsonschema==4.26.0
