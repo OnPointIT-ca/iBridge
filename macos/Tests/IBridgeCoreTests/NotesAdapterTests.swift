@@ -204,6 +204,32 @@ final class NotesAdapterTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaintextResponseExplicitlyReportsRichContentLimitations() throws {
+        let row = NSAppleEventDescriptor.list()
+        for (index, value) in ["note-1", "folder-1", "Fixture", "Plain text"].enumerated() {
+            row.insert(NSAppleEventDescriptor(string: value), at: index + 1)
+        }
+        row.insert(NSAppleEventDescriptor(boolean: true), at: 5)
+        let response = NSAppleEventDescriptor.list()
+        response.insert(NSAppleEventDescriptor(string: "read"), at: 1)
+        response.insert(row, at: 2)
+        let result = try NotesAppleScriptTransport.decode(response, operation: "notes.read")
+        XCTAssertEqual(result["body"] as? String, "Plain text")
+        XCTAssertEqual(result["content_format"] as? String, "plain_text")
+        XCTAssertEqual(result["rich_content_preserved"] as? Bool, false)
+        XCTAssertEqual(result["attachments_included"] as? Bool, false)
+        XCTAssertEqual(result["has_attachments"] as? Bool, true)
+    }
+
+    @MainActor
+    func testMalformedWriteResponseIsUnknown() {
+        XCTAssertThrowsError(try NotesAppleScriptTransport.decode(NSAppleEventDescriptor(string: "invalid"), operation: "notes.create")) { error in
+            XCTAssertEqual((error as? NativeError)?.outcome, "unknown")
+            XCTAssertEqual((error as? NativeError)?.status, 503)
+        }
+    }
+
+    @MainActor
     func testPermissionStatusMapping() {
         XCTAssertEqual(NotesAppleScriptTransport.permissionName(0), "authorized")
         XCTAssertEqual(NotesAppleScriptTransport.permissionName(-1744), "not_determined")

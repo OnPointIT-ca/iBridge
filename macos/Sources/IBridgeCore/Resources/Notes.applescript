@@ -14,8 +14,16 @@ on checkBudget()
 end checkBudget
 
 on permitsFolder(folderID)
-    return (allowedFolderIDs contains "*") or (allowedFolderIDs contains folderID)
+    considering case
+        return (allowedFolderIDs contains "*") or (allowedFolderIDs contains folderID)
+    end considering
 end permitsFolder
+
+on sameID(firstID, secondID)
+    considering case
+        return firstID is secondID
+    end considering
+end sameID
 
 on visitFolders(parentObject)
     my checkBudget()
@@ -29,7 +37,7 @@ on visitFolders(parentObject)
             if visitedFolderIDs does not contain folderID then
                 set end of visitedFolderIDs to folderID
                 if (count visitedFolderIDs) > 500 then error "Folder limit" number -2704
-                if (my permitsFolder(folderID)) and (folderFilter is "" or folderFilter is folderID) then
+                if (my permitsFolder(folderID)) and (folderFilter is "" or (my sameID(folderFilter, folderID))) then
                     set end of selectedFolders to {folderID, childFolder}
                 end if
                 my visitFolders(childFolder)
@@ -50,15 +58,21 @@ on noteRecord(selectedNote, folderID, includeBody)
     tell application id "com.apple.Notes"
         -- Verify the actual container before reading any title or body. The caller
         -- only obtains note references from an exactly authorized folder.
-        if (id of container of selectedNote) is not folderID then error "Container changed" number -2702
+        if not (my sameID((id of container of selectedNote), folderID)) then error "Container changed" number -2702
         if password protected of selectedNote then error "Locked note" number -2703
+        my checkBudget()
         set noteID to id of selectedNote
+        my checkBudget()
         set noteTitle to my boundedText((name of selectedNote), 4096)
+        my checkBudget()
         set noteBody to plaintext of selectedNote
         if (count characters of noteBody) > 262144 then error "Text limit" number -2704
         if not includeBody and (count characters of noteBody) > 300 then set noteBody to text 1 thru 300 of noteBody
         set noteBody to my boundedText(noteBody, 262144)
+        my checkBudget()
         set hasAttachments to (count attachments of selectedNote) > 0
+        my checkBudget()
+        if not (my sameID((id of container of selectedNote), folderID)) then error "Container changed" number -2702
         return {noteID, folderID, noteTitle, noteBody, hasAttachments}
     end tell
 end noteRecord
@@ -125,12 +139,15 @@ on bridge_operation(operationName, permittedIDs, requestedFolder, requestedNote,
                         set selectedNote to note noteIndex of selectedFolder
                         set noteID to id of selectedNote
                         -- No global note lookup: a guessed ID cannot bypass folders.
-                        if (id of container of selectedNote) is folderID then
-                            if operationName is "notes.read" and noteID is requestedNote then
+                        my checkBudget()
+                        if (my sameID((id of container of selectedNote), folderID)) then
+                            if operationName is "notes.read" and (my sameID(noteID, requestedNote)) then
                                 return {"read", my noteRecord(selectedNote, folderID, true)}
                             end if
                             if operationName is "notes.search" and not (password protected of selectedNote) then
+                                my checkBudget()
                                 set noteTitle to name of selectedNote
+                                my checkBudget()
                                 set noteBody to plaintext of selectedNote
                                 if (count characters of noteBody) > 262144 then error "Text limit" number -2704
                                 ignoring case
