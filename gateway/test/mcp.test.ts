@@ -34,6 +34,8 @@ class FixtureNative implements NativeTransport {
     }
     if (operation === 'calendar.list') return {items: resources.calendar_ids.map(id => ({id, title: 'Fixture calendar'}))};
     if (operation === 'reminders.lists') return {items: resources.reminder_list_ids.map(id => ({id, title: 'Fixture list'}))};
+    if (operation === 'notes.folders') return {items: [{id:'folder-a'},{id:'folder-b'}]};
+    if (operation === 'messages.chats') return {items: [{id:'chat-a'},{id:'chat-b'}]};
     return {items: [], query: args.query};
   }
 }
@@ -120,6 +122,61 @@ test('MCP and REST share durable write deduplication, while clients have separat
     arguments: {...writeArguments, title: 'Changed plan'}});
   assert.equal(conflict.body.result.structuredContent.error.code, 'idempotency_conflict');
   assert.equal(native.writes, 2);
+});
+
+test('MCP lists and calls Notes and Messages only with explicit per-client container grants', async t => {
+  const {rpc,store}=await fixture(t);
+  const client=store.createClient({name:'notes-messages',operations:['notes.folders','notes.search','notes.read','messages.chats','messages.read'],
+    resources:{note_folder_ids:['folder-a'],message_chat_ids:['chat-a']}});
+  const listed=await rpc(client.token,'tools/list');
+  assert.deepEqual(listed.body.result.tools.map((tool:any)=>tool.name).sort(),
+    ['ibridge_capabilities','ibridge_notes_folders','ibridge_notes_search','ibridge_notes_read','ibridge_messages_chats','ibridge_messages_read'].sort());
+  for (const [name,id] of [['ibridge_notes_folders','folder-a'],['ibridge_messages_chats','chat-a']]) {
+    const read=await rpc(client.token,'tools/call',{name,arguments:{}});
+    assert.equal(read.body.result.isError,false);
+    assert.deepEqual(read.body.result.structuredContent.data.items,[{id}]);
+  }
+  for (const [name,args] of [
+    ['ibridge_notes_search',{query:'plan',folder_id:'folder-b'}],
+    ['ibridge_messages_read',{chat_id:'chat-b'}],
+    ['ibridge_messages_search',{query:'plan',chat_id:'chat-a'}],
+  ]) {
+    const denied=await rpc(client.token,'tools/call',{name,arguments:args});
+    assert.equal(denied.body.result.isError,true);
+    assert.equal(denied.body.result.structuredContent.error.code,'permission_denied');
+  }
+  const legacy=store.createClient({name:'legacy-wildcard',operations:['*']});
+  store.db.prepare('UPDATE clients SET resources=? WHERE id=?').run(JSON.stringify({calendar_ids:['*'],reminder_list_ids:['*'],drive_root_ids:['*']}),legacy.client_id);
+  const legacyTools=await rpc(legacy.token,'tools/list');
+  assert.ok(legacyTools.body.result.tools.every((tool:any)=>!/^ibridge_(notes|messages)_/.test(tool.name)));
+  for (const [name,args] of [['ibridge_notes_read',{note_id:'note-a'}],['ibridge_messages_search',{query:'plan'}]]) {
+    const denied=await rpc(legacy.token,'tools/call',{name,arguments:args});
+    assert.equal(denied.body.result.structuredContent.error.code,'permission_denied');
+  }
+});
+
+test('MCP and REST share Notes write receipts and never retry an uncertain Notes creation',async t=>{
+  const {rpc,store,address,native}=await fixture(t);
+  const client=store.createClient({name:'note-writer',operations:['notes.create'],resources:{note_folder_ids:['folder-a']}});
+  const note={folder_id:'folder-a',title:'Plan',body:'Plain text'};
+  const first=await rpc(client.token,'tools/call',{name:'ibridge_notes_create',arguments:{...note,request_id:'mcp-note-001'}});
+  assert.equal(first.body.result.isError,false);
+  const rest=await fetch(`${address}/api/v1/notes`,{
+    method:'POST',headers:{...headers(client.token),'idempotency-key':'mcp-note-001'},body:JSON.stringify(note),
+  });
+  assert.equal(rest.status,200);
+  assert.deepEqual(await rest.json(),first.body.result.structuredContent);
+  assert.equal(native.writes,1);
+  native.unknownWrite=true;
+  for (let attempt=0;attempt<2;attempt++) {
+    const uncertain=await rpc(client.token,'tools/call',{name:'ibridge_notes_create',arguments:{...note,request_id:'mcp-note-002'}});
+    assert.equal(uncertain.body.result.structuredContent.error.outcome,'unknown');
+  }
+  assert.equal(native.writes,2);
+  store.db.prepare('UPDATE clients SET resources=? WHERE id=?').run(JSON.stringify({note_folder_ids:[]}),client.client_id);
+  const denied=await rpc(client.token,'tools/call',{name:'ibridge_notes_create',arguments:{...note,request_id:'mcp-note-001'}});
+  assert.equal(denied.body.result.structuredContent.error.code,'permission_denied');
+  assert.equal(native.writes,2);
 });
 
 test('uncertain write errors include the request ID and cannot be replayed into another native write', async t => {

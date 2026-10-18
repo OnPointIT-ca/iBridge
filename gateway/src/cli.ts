@@ -12,12 +12,13 @@ async function main() {
   const {values,positionals} = parseArgs({allowPositionals:true,options:{
     name:{type:'string'},operations:{type:'string'},scopes:{type:'string'},
     'calendar-ids':{type:'string'},'reminder-list-ids':{type:'string'},'drive-root-ids':{type:'string'},
+    'note-folder-ids':{type:'string'},'message-chat-ids':{type:'string'},
     host:{type:'string'},port:{type:'string'},'allowed-hosts':{type:'string'},json:{type:'boolean'},
     help:{type:'boolean',short:'h'}
   }});
   const [command,subcommand,id] = positionals;
   if (values.help || !command) {
-    process.stdout.write('iBridge gateway (Node.js 24+)\ninit\nserve [--port 21420] [--allowed-hosts 127.0.0.1:21420,mac.example.ts.net]\nclient create --name NAME --operations scope,... [--calendar-ids id,...] [--reminder-list-ids id,...] [--drive-root-ids id,...]\nclient list | revoke ID | rotate ID\njournal list\nUse IBRIDGE_HOME to select the private state directory. Omitted scopes deny access; * grants all explicitly.\n');
+    process.stdout.write('iBridge gateway (Node.js 24+)\ninit\nserve [--port 21420] [--allowed-hosts 127.0.0.1:21420,mac.example.ts.net]\nclient create --name NAME --operations scope,... [--calendar-ids id,...] [--reminder-list-ids id,...] [--drive-root-ids id,...] [--note-folder-ids id,...] [--message-chat-ids id,...]\nclient list | revoke ID | rotate ID\njournal list\nUse IBRIDGE_HOME to select the private state directory. Omitted scopes deny access; * grants all explicitly.\n');
     return;
   }
   const store = new Store(defaultHome());
@@ -26,7 +27,7 @@ async function main() {
     const list = (value?: string) => value ? value.split(',').map(part => part.trim()).filter(Boolean) : [];
     if (command === 'init') {output({home:store.home}); return;}
     if (command === 'client') {
-      if (subcommand === 'create') output(store.createClient({name:values.name ?? '',operations:list(values.operations ?? values.scopes),resources:{calendar_ids:list(values['calendar-ids']),reminder_list_ids:list(values['reminder-list-ids']),drive_root_ids:list(values['drive-root-ids'])}}));
+      if (subcommand === 'create') output(store.createClient({name:values.name ?? '',operations:list(values.operations ?? values.scopes),resources:{calendar_ids:list(values['calendar-ids']),reminder_list_ids:list(values['reminder-list-ids']),drive_root_ids:list(values['drive-root-ids']),note_folder_ids:list(values['note-folder-ids']),message_chat_ids:list(values['message-chat-ids'])}}));
       else if (subcommand === 'list') output({clients:store.listClients()});
       else if (subcommand === 'revoke' && id) {store.revokeClient(id); output({client_id:id,revoked:true});}
       else if (subcommand === 'rotate' && id) output(store.rotateClient(id));

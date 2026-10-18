@@ -14,5 +14,5 @@ export function operationNamed(name: string): Operation | undefined {
   return operations.find(op => op.name === name || op.capability === name);
 }
 export function implemented(operation: Operation): boolean {
-  return /^(calendar|reminders|contacts|drive)\./.test(operation.capability);
+  return /^(calendar|reminders|contacts|drive|notes|messages)\./.test(operation.capability);
 }
