@@ -4,18 +4,19 @@ import Foundation
 import XCTest
 @testable import IBridgeCore
 
-@MainActor
 final class AppleAdapterTests: XCTestCase {
     private let allCollections = ResourcePolicy([
         "calendar_ids": ["*"], "reminder_list_ids": ["*"]
     ])
 
+    @MainActor
     func testDeniedPermissionsDisableEveryAppleCapability() {
         let adapters = AppleAdapters(eventAuthorization: { _ in .denied }, contactAuthorization: { .denied })
         XCTAssertTrue(adapters.capabilities(allCollections).values.allSatisfy { !$0 })
         XCTAssertEqual(adapters.permissionSummary, ["calendar": "denied", "reminders": "denied", "contacts": "denied"])
     }
 
+    @MainActor
     func testWriteOnlyCalendarAccessDoesNotEnableReadsOrWrites() {
         let adapters = AppleAdapters(eventAuthorization: { _ in .writeOnly }, contactAuthorization: { .restricted })
         XCTAssertFalse(adapters.capabilities(allCollections)["calendar.events.create"]!)
@@ -23,6 +24,7 @@ final class AppleAdapterTests: XCTestCase {
         XCTAssertEqual(adapters.permissionSummary["calendar"], "write_only")
     }
 
+    @MainActor
     func testEmptyPolicyDisablesCollectionsDespiteFullPermission() {
         let adapters = AppleAdapters(eventAuthorization: { _ in .fullAccess }, contactAuthorization: { .authorized })
         let capabilities = adapters.capabilities(ResourcePolicy())
@@ -31,6 +33,7 @@ final class AppleAdapterTests: XCTestCase {
         XCTAssertEqual(capabilities["contacts.search"], true)
     }
 
+    @MainActor
     func testPolicyDoesNotEnableAnotherService() {
         let adapters = AppleAdapters(eventAuthorization: { _ in .fullAccess }, contactAuthorization: { .notDetermined })
         let capabilities = adapters.capabilities(ResourcePolicy(["calendar_ids": ["test-calendar"]]))
@@ -39,6 +42,7 @@ final class AppleAdapterTests: XCTestCase {
         XCTAssertEqual(capabilities["contacts.search"], false)
     }
 
+    @MainActor
     func testRemoteOperationsFailBeforeAccessingDeniedStores() async {
         let adapters = AppleAdapters(eventAuthorization: { _ in .denied }, contactAuthorization: { .denied })
         let operations = [
@@ -57,6 +61,7 @@ final class AppleAdapterTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testPermissionStatusIsRecheckedOnEveryRequest() async {
         var status: EKAuthorizationStatus = .fullAccess
         let adapters = AppleAdapters(eventAuthorization: { _ in status }, contactAuthorization: { .denied })
@@ -72,6 +77,7 @@ final class AppleAdapterTests: XCTestCase {
         } catch { XCTFail("Unexpected error type") }
     }
 
+    @MainActor
     func testUnapprovedCollectionRejectedBeforeLookingUpStore() async {
         let adapters = AppleAdapters(eventAuthorization: { _ in .fullAccess }, contactAuthorization: { .denied })
         for (operation, key) in [("calendar.events.list", "calendar_id"), ("reminders.list", "list_id"), ("reminders.complete", "list_id")] {
@@ -86,6 +92,7 @@ final class AppleAdapterTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testInvalidCollectionRejectedBeforeLookingUpStore() async {
         let adapters = AppleAdapters(eventAuthorization: { _ in .fullAccess }, contactAuthorization: { .denied })
         do {
@@ -97,11 +104,13 @@ final class AppleAdapterTests: XCTestCase {
         } catch { XCTFail("Unexpected error type") }
     }
 
+    @MainActor
     func testEventIntervalAccountsForOffsets() throws {
         let range = try AppleAdapters.eventRange(["start": "2026-10-17T10:00:00-07:00", "end": "2026-10-17T18:30:00Z"])
         XCTAssertEqual(range.1.timeIntervalSince(range.0), 90 * 60)
     }
 
+    @MainActor
     func testEventRangeRejectsReversedUnboundedAndInvalidDates() {
         let invalidRanges: [JSONObject] = [
             ["start": "2026-10-17T10:00:00Z", "end": "2026-10-17T10:00:00Z"],
@@ -115,11 +124,13 @@ final class AppleAdapterTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testMaximumEventRangeIsAccepted() throws {
         let range = try AppleAdapters.eventRange(["start": "2024-01-01T00:00:00Z", "end": "2025-01-01T00:00:00Z"])
         XCTAssertEqual(range.1.timeIntervalSince(range.0), 366 * 86_400)
     }
 
+    @MainActor
     func testContactSearchMatchesNamesEmailAndNormalizedPhones() {
         let matches: (String) -> Bool = { query in
             AppleAdapters.contactMatches(name: "Jos\u{00e9} Example", emails: ["hello@example.test"], phones: ["+1 (604) 555-0199"], query: query)
@@ -132,6 +143,7 @@ final class AppleAdapterTests: XCTestCase {
         XCTAssertFalse(matches("person555"))
     }
 
+    @MainActor
     func testTimestampRoundTripsWithExplicitUTCOffset() throws {
         let date = try NativeValidation.date("2026-10-17T10:00:00.125-07:00")
         let serialized = AppleAdapters.timestamp(date)

@@ -6,8 +6,9 @@ import Foundation
 /// for explicit actions in the local app, never an incoming RPC.
 @MainActor
 public final class AppleAdapters {
-    private let eventStore: EKEventStore
-    private let contactStore: CNContactStore
+    // Status inspection and denied requests do not open an Apple data store.
+    private lazy var eventStore = EKEventStore()
+    private lazy var contactStore = CNContactStore()
     private let eventAuthorization: (EKEntityType) -> EKAuthorizationStatus
     private let contactAuthorization: () -> CNAuthorizationStatus
 
@@ -23,8 +24,6 @@ public final class AppleAdapters {
         eventAuthorization: @escaping (EKEntityType) -> EKAuthorizationStatus,
         contactAuthorization: @escaping () -> CNAuthorizationStatus
     ) {
-        self.eventStore = EKEventStore()
-        self.contactStore = CNContactStore()
         self.eventAuthorization = eventAuthorization
         self.contactAuthorization = contactAuthorization
     }

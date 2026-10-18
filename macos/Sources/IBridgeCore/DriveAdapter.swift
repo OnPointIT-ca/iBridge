@@ -48,9 +48,9 @@ public final class DriveAdapter {
 
     /// Test-only construction avoids permission prompts and fake security-scoped
     /// bookmarks. It uses exactly the production descriptor traversal and I/O.
-    init(testRoots: [String: URL]) {
+    init(testRoots: [String: URL]) throws {
         self.stateDescriptor = -1
-        self.testRoots = testRoots.mapValues { $0.resolvingSymlinksInPath().standardizedFileURL }
+        self.testRoots = try testRoots.mapValues { try DriveFS.canonicalDirectoryURL($0) }
         self.roots = testRoots.sorted { $0.key < $1.key }.map {
             Root(id: $0.key, name: $0.value.lastPathComponent, bookmark: Data())
         }
@@ -70,7 +70,7 @@ public final class DriveAdapter {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         // Resolve aliases chosen by the owner once, before creating the bookmark.
         // Requests never resolve symlinks supplied in remote paths.
-        let canonical = url.resolvingSymlinksInPath().standardizedFileURL
+        let canonical = try DriveFS.canonicalDirectoryURL(url)
         let descriptor = try DriveFS.openAbsoluteDirectory(canonical)
         close(descriptor)
         let bookmark: Data
@@ -173,9 +173,15 @@ public final class DriveAdapter {
             }
         }
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        let descriptor = try DriveFS.openAbsoluteDirectory(url)
+        // Bookmark resolution can reintroduce the system /var or /tmp aliases.
+        // Only the owner-selected bookmark root is canonicalized; remote path
+        // components remain subject to descriptor-relative O_NOFOLLOW traversal.
+        let canonical: URL
+        if testRoots[id] == nil { canonical = try DriveFS.canonicalDirectoryURL(url) }
+        else { canonical = url }
+        let descriptor = try DriveFS.openAbsoluteDirectory(canonical)
         defer { close(descriptor) }
-        return try body(descriptor, url)
+        return try body(descriptor, canonical)
     }
 
     private func scan(_ directory: Int32, rootID: String, path: String,
@@ -276,12 +282,12 @@ public final class DriveAdapter {
         guard info.st_mode & S_IFMT == S_IFREG else {
             throw NativeError("invalid_arguments", "Only regular files can be read.")
         }
+        guard info.st_size >= 0, info.st_size <= maximum else {
+            throw NativeError("too_large", "The file exceeds the requested read limit.", status: 413)
+        }
         let fileURL = rootURL.appendingPathComponent(path)
         if try requestDownloadIfNeeded(fileURL, identity: info) {
             return ["state": "downloading"]
-        }
-        guard info.st_size >= 0, info.st_size <= maximum else {
-            throw NativeError("too_large", "The file exceeds the requested read limit.", status: 413)
         }
         let descriptor = openat(parent, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { throw DriveFS.error() }
@@ -316,7 +322,8 @@ public final class DriveAdapter {
         guard let referencePath else {
             throw NativeError("unavailable", "The file identity is unavailable.", status: 503)
         }
-        let referenceParent = try DriveFS.openAbsoluteDirectory(referencePath.deletingLastPathComponent())
+        let canonicalParent = try DriveFS.canonicalDirectoryURL(referencePath.deletingLastPathComponent())
+        let referenceParent = try DriveFS.openAbsoluteDirectory(canonicalParent)
         defer { close(referenceParent) }
         let referenceDescriptor = openat(referenceParent, referencePath.lastPathComponent,
                                          O_EVTONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
@@ -436,6 +443,19 @@ private enum DriveFS {
 
     static func sameFile(_ first: stat, _ second: stat) -> Bool {
         first.st_dev == second.st_dev && first.st_ino == second.st_ino
+    }
+
+    /// The argument must be an owner-selected root, a resolved bookmark, or a
+    /// verified file-reference parent, never a remotely supplied relative path.
+    /// Foundation standardization may turn /private/var back into /var, so use
+    /// POSIX realpath on the existing directory and preserve its exact result.
+    static func canonicalDirectoryURL(_ url: URL) throws -> URL {
+        guard url.isFileURL, !url.path.contains("\0") else {
+            throw NativeError("invalid_arguments", "A local directory is required.")
+        }
+        guard let resolved = realpath(url.path, nil) else { throw error() }
+        defer { free(resolved) }
+        return URL(fileURLWithFileSystemRepresentation: resolved, isDirectory: true, relativeTo: nil)
     }
 
     static func openAbsoluteDirectory(_ url: URL) throws -> Int32 {

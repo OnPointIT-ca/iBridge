@@ -3,7 +3,6 @@ import Foundation
 import Darwin
 @testable import IBridgeCore
 
-@MainActor
 final class DriveAdapterTests: XCTestCase {
     private struct Fixture {
         let base: URL
@@ -12,18 +11,19 @@ final class DriveAdapterTests: XCTestCase {
         let adapter: DriveAdapter
     }
 
+    @MainActor
     private func fixture() throws -> Fixture {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("ibridge-drive-tests-" + UUID().uuidString)
-            .resolvingSymlinksInPath()
         let root = base.appendingPathComponent("selected")
         let outside = base.appendingPathComponent("outside")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         return Fixture(base: base, root: root, outside: outside,
-                       adapter: DriveAdapter(testRoots: ["allowed": root]))
+                       adapter: try DriveAdapter(testRoots: ["allowed": root]))
     }
 
+    @MainActor
     private func request(_ operation: String, _ arguments: JSONObject = [:],
                          policy: [String] = ["allowed"]) -> NativeRequest {
         var arguments = arguments
@@ -33,6 +33,7 @@ final class DriveAdapterTests: XCTestCase {
                              requestID: operation == "drive.upload" ? UUID().uuidString : nil)
     }
 
+    @MainActor
     private func rejects(_ adapter: DriveAdapter, _ request: NativeRequest,
                          statuses: Set<Int>, file: StaticString = #filePath, line: UInt = #line) async {
         do {
@@ -46,6 +47,7 @@ final class DriveAdapterTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testRootPoliciesAreEnforcedForDiscoveryAndOperations() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -61,6 +63,7 @@ final class DriveAdapterTests: XCTestCase {
         await rejects(f.adapter, request("drive.list", ["root_id": "missing"], policy: ["missing"]), statuses: [404])
     }
 
+    @MainActor
     func testUploadCreatesPrivateFileAndReadReturnsExactBytes() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -79,6 +82,7 @@ final class DriveAdapterTests: XCTestCase {
         XCTAssertEqual(read["media_type"] as? String, "application/octet-stream")
     }
 
+    @MainActor
     func testExistingDestinationCannotBeOverwritten() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -89,6 +93,7 @@ final class DriveAdapterTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file), original)
     }
 
+    @MainActor
     func testUploadsAllowEmptyFilesButRejectOversizeAndNoncanonicalContent() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -101,6 +106,7 @@ final class DriveAdapterTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: f.root.appendingPathComponent("invalid").path))
     }
 
+    @MainActor
     func testReadRejectsOversizeInsteadOfTruncating() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -113,6 +119,7 @@ final class DriveAdapterTests: XCTestCase {
         await rejects(f.adapter, request("drive.read", ["path": "large.bin"]), statuses: [413])
     }
 
+    @MainActor
     func testUnsafePathsAreRejectedBeforeFileCreation() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -123,6 +130,7 @@ final class DriveAdapterTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: f.outside.path), [])
     }
 
+    @MainActor
     func testSymlinkParentCannotEscapeForReadUploadOrListing() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -136,6 +144,7 @@ final class DriveAdapterTests: XCTestCase {
         XCTAssertEqual((listing["items"] as? [JSONObject])?.count, 0)
     }
 
+    @MainActor
     func testSymlinkFileCannotBeReadOrOverwritten() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -148,6 +157,7 @@ final class DriveAdapterTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file), original)
     }
 
+    @MainActor
     func testDirectoryAndFIFOAreNotReadableFiles() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -157,6 +167,7 @@ final class DriveAdapterTests: XCTestCase {
         await rejects(f.adapter, request("drive.read", ["path": "pipe"]), statuses: [400])
     }
 
+    @MainActor
     func testListingPaginationIsStableAndBoundToDirectoryContents() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -171,6 +182,7 @@ final class DriveAdapterTests: XCTestCase {
         await rejects(f.adapter, request("drive.list", ["limit": 2, "cursor": cursor]), statuses: [400])
     }
 
+    @MainActor
     func testSearchFindsNestedNamesWithoutFollowingSymlinks() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -185,6 +197,7 @@ final class DriveAdapterTests: XCTestCase {
         XCTAssertEqual(result["search_scope"] as? String, "file_names")
     }
 
+    @MainActor
     func testSearchExplicitlyReportsItsDepthBound() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -197,6 +210,7 @@ final class DriveAdapterTests: XCTestCase {
         XCTAssertEqual((result["items"] as? [JSONObject])?.count, 0)
     }
 
+    @MainActor
     func testBookmarkStorePersistsSelectionPrivatelyAndSupportsRemoval() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
@@ -214,7 +228,8 @@ final class DriveAdapterTests: XCTestCase {
         XCTAssertEqual(try DriveAdapter(stateDirectory: state).selectedRoots.count, 0)
     }
 
-    func testBookmarkStoreRejectsSymlinkAndInsecurePermissions() throws {
+    @MainActor
+    func testBookmarkStoreRejectsSymlinkAndInsecurePermissions() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.base) }
         let state = f.base.appendingPathComponent("state")
@@ -227,5 +242,25 @@ final class DriveAdapterTests: XCTestCase {
         try FileManager.default.removeItem(at: store)
         XCTAssertEqual(chmod(state.path, 0o755), 0)
         XCTAssertThrowsError(try DriveAdapter(stateDirectory: state))
+    }
+
+    @MainActor
+    func testSystemTemporaryDirectoryAliasCanBeSelectedWithoutFollowingRemoteSymlinks() async throws {
+        // /tmp -> /private/tmp on macOS. Exercise the actual alias after its
+        // target directory exists, rather than normalizing a nonexistent URL.
+        let base = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("ibridge-system-alias-" + UUID().uuidString)
+        let selected = base.appendingPathComponent("selected")
+        let outside = base.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: selected, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let adapter = try DriveAdapter(testRoots: ["allowed": selected])
+        _ = try await adapter.execute(request("drive.upload", ["path": "safe.txt", "content_base64": "c2FmZQ=="]))
+        let read = try await adapter.execute(request("drive.read", ["path": "safe.txt"]))
+        XCTAssertEqual(read["content_base64"] as? String, "c2FmZQ==")
+        try FileManager.default.createSymbolicLink(at: selected.appendingPathComponent("escape"), withDestinationURL: outside)
+        await rejects(adapter, request("drive.upload", ["path": "escape/no.txt", "content_base64": ""]), statuses: [403, 404])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outside.path), [])
     }
 }
