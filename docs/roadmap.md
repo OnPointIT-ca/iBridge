@@ -11,10 +11,12 @@ Use private HTTPS through Tailscale initially, with per-client authorization.
 ## Feature delivery
 
 Complete relevant checks, commit, and push each finished feature independently.
-Development changes go to a feature branch; merging is separate from pushing.
+Development changes go to a feature branch. Merge validated completed features
+into main, push main, and update its README, as requested by the user. Use
+parallel subagents with isolated worktrees for independent features.
 
-1. Hermes connection and capability discovery, with a versioned HTTP contract.
-2. Validated read tools for Calendar, Reminders, Contacts, Drive, Notes, Messages.
+1. **Complete:** Hermes connection and discovery, with a versioned HTTP contract.
+2. **Complete:** Validated read tools for all six planned Apple service modules.
 3. Scoped write tools with explicit idempotency keys and installation guidance.
 4. Native Swift app: establish permissions and verify access on the target Mac.
 5. TypeScript gateway: implement this contract, token scopes, durable write

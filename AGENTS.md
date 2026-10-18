@@ -6,7 +6,10 @@
 - Keep the HTTP contract and plugin behavior consistent. Distinguish client tests
   from real macOS adapter validation; never report fixtures as live Apple access.
 - Run relevant tests before completing a feature. Commit and push each completed
-  feature to the working branch, as requested by the user. Never force-push.
+  feature to its working branch, then merge validated features into main and push
+  main, as requested by the user. Update the main README to reflect completed work.
+  Never force-push. Parallel subagents are authorized for separate features; use
+  isolated worktrees or clearly separate file ownership to avoid conflicts.
 - Keep credentials and personal Apple data out of code, fixtures, and logs.
 - Keep System Integrity Protection enabled. Use supported APIs and authorized
   application automation; do not write directly to Apple application databases.
