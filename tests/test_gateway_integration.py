@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import selectors
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -33,8 +34,9 @@ class GatewayIntegrationTests(unittest.TestCase):
         self.addCleanup(self.native.close)
         self.identity = self.run_cli(
             "client", "create", "--name", "Hermes integration fixture",
-            "--operations", "calendar.list,calendar.events.list,reminders.lists,reminders.list,reminders.create,drive.roots,drive.search",
+            "--operations", "calendar.list,calendar.events.list,reminders.lists,reminders.list,reminders.create,drive.roots,drive.search,notes.folders,notes.search,notes.read,notes.create,messages.chats,messages.search,messages.read",
             "--calendar-ids", "calendar-1", "--reminder-list-ids", "list-1", "--drive-root-ids", "root-1",
+            "--note-folder-ids", "folder-1", "--message-chat-ids", "chat-1",
         )
         self.process = None
         self.addCleanup(self.stop_gateway)
@@ -134,6 +136,107 @@ class GatewayIntegrationTests(unittest.TestCase):
         self.run_cli("client", "revoke", self.identity["client_id"])
         result = self.invoke("ibridge_capabilities", {})
         self.assertEqual(result["error"]["code"], "authentication_failed")
+
+    def test_notes_and_messages_discovery_search_and_reads(self):
+        capabilities = self.invoke("ibridge_capabilities", {})
+        for operation in ("notes.folders", "notes.search", "notes.read", "notes.create",
+                          "messages.chats", "messages.search", "messages.read"):
+            self.assertTrue(capabilities["data"]["operations"][operation]["available"], operation)
+        folders = self.invoke("ibridge_notes_folders", {})
+        self.assertEqual([item["id"] for item in folders["data"]["items"]], ["folder-1"])
+        chats = self.invoke("ibridge_messages_chats", {})
+        self.assertEqual([item["id"] for item in chats["data"]["items"]], ["chat-1"])
+        for optional_folder in ({}, {"folder_id": "folder-1"}):
+            notes = self.invoke("ibridge_notes_search", {"query": "plan", **optional_folder})
+            self.assertEqual([item["id"] for item in notes["data"]["items"]], ["note-1"])
+        note = self.invoke("ibridge_notes_read", {"note_id": "note-1"})
+        self.assertEqual(note["data"]["body"], "Review the project plan.")
+        for optional_chat in ({}, {"chat_id": "chat-1"}):
+            messages = self.invoke("ibridge_messages_search", {"query": "plan", **optional_chat})
+            self.assertEqual([item["id"] for item in messages["data"]["items"]], ["message-1"])
+        messages = self.invoke("ibridge_messages_read", {"chat_id": "chat-1"})
+        self.assertEqual([item["id"] for item in messages["data"]["items"]], ["message-1"])
+        self.assertEqual(messages["meta"]["sync_state"], "local")
+        for call in self.native.calls:
+            self.assertEqual(call["resources"]["note_folder_ids"], ["folder-1"])
+            self.assertEqual(call["resources"]["message_chat_ids"], ["chat-1"])
+
+    def test_notes_and_messages_cross_container_denial(self):
+        for name, arguments, operation in (
+            ("ibridge_notes_search", {"query": "plan", "folder_id": "private-folder"}, "notes.search"),
+            ("ibridge_notes_create", {"folder_id": "private-folder", "title": "Denied", "body": "Text", "request_id": "denied-note-001"}, "notes.create"),
+            ("ibridge_messages_search", {"query": "plan", "chat_id": "private-chat"}, "messages.search"),
+            ("ibridge_messages_read", {"chat_id": "private-chat"}, "messages.read"),
+        ):
+            denied = self.invoke(name, arguments)
+            self.assertEqual(denied["error"]["code"], "permission_denied", name)
+            self.assertEqual(self.native.count(operation), 0)
+        # A note ID has no folder argument: the fixture models native folder checks.
+        denied = self.invoke("ibridge_notes_read", {"note_id": "private-note"})
+        self.assertEqual(denied["error"]["code"], "permission_denied")
+        self.assertEqual(self.native.count("notes.read"), 1)
+        self.assertNotIn("Private note fixture", json.dumps(denied))
+        self.assertEqual(self.run_cli("journal", "list")["requests"], [])
+
+    def test_notes_creation_replays_after_restart_and_detects_changed_body(self):
+        arguments = {"folder_id": "folder-1", "title": "Project note", "body": "One plain-text note.", "request_id": "notes-replay-001"}
+        first = self.invoke("ibridge_notes_create", arguments)
+        self.assertEqual(first["data"]["state"], "saved")
+        self.assertEqual(first["meta"]["sync_state"], "local")
+        self.stop_gateway()
+        self.start_gateway()
+        self.assertEqual(self.invoke("ibridge_notes_create", arguments), first)
+        conflict = self.invoke("ibridge_notes_create", {**arguments, "body": "Changed body."})
+        self.assertEqual(conflict["error"]["code"], "conflict")
+        self.assertEqual(self.native.count("notes.create"), 1)
+        self.assertEqual(len(self.native.saved_notes), 1)
+        read = self.invoke("ibridge_notes_read", {"note_id": first["data"]["id"]})
+        self.assertEqual(read["data"]["body"], arguments["body"])
+
+    def test_notes_lost_response_is_not_redispatched_after_restart(self):
+        self.native.drop_next_write_response = True
+        arguments = {"folder_id": "folder-1", "title": "Possibly saved note", "body": "Do not retry.", "request_id": "notes-unknown-001"}
+        first = self.invoke("ibridge_notes_create", arguments)
+        self.assertEqual(first["error"]["outcome"], "unknown")
+        self.stop_gateway()
+        self.start_gateway()
+        second = self.invoke("ibridge_notes_create", arguments)
+        self.assertEqual(second["error"]["outcome"], "unknown")
+        self.assertEqual(second["error"]["request_id"], arguments["request_id"])
+        self.assertEqual(self.native.count("notes.create"), 1)
+        self.assertEqual(len(self.native.saved_notes), 1)
+        self.assertEqual(self.run_cli("journal", "list")["requests"][0]["state"], "unknown")
+
+    def test_new_and_legacy_wildcard_clients_do_not_gain_notes_or_messages(self):
+        ungranted = self.run_cli("client", "create", "--name", "No resource grants", "--operations", "*")
+        legacy = self.run_cli("client", "create", "--name", "Pre-adapter policy", "--operations", "*")
+        # Simulate resources persisted before the Notes/Messages fields existed.
+        with sqlite3.connect(self.home / "gateway.sqlite") as database:
+            database.execute("UPDATE clients SET resources=? WHERE id=?", (
+                json.dumps({"calendar_ids": ["*"], "reminder_list_ids": ["*"], "drive_root_ids": ["*"]}),
+                legacy["client_id"],
+            ))
+        self.stop_gateway()
+        self.start_gateway()
+        for identity in (ungranted, legacy):
+            self.identity = identity
+            capabilities = self.invoke("ibridge_capabilities", {})
+            for operation in ("notes.folders", "notes.search", "notes.read", "notes.create",
+                              "messages.chats", "messages.search", "messages.read"):
+                self.assertEqual(capabilities["data"]["operations"][operation],
+                                 {"available": False, "reason": "permission_denied"})
+            for name, arguments in (
+                ("ibridge_notes_folders", {}),
+                ("ibridge_notes_search", {"query": "plan"}),
+                ("ibridge_notes_read", {"note_id": "note-1"}),
+                ("ibridge_notes_create", {"folder_id": "folder-1", "title": "Denied", "body": "Text", "request_id": "denied-legacy-001"}),
+                ("ibridge_messages_chats", {}),
+                ("ibridge_messages_search", {"query": "plan"}),
+                ("ibridge_messages_read", {"chat_id": "chat-1"}),
+            ):
+                self.assertEqual(self.invoke(name, arguments)["error"]["code"], "operation_unavailable", name)
+        self.assertTrue(all(call["operation"] == "system.capabilities" for call in self.native.calls))
+        self.assertEqual(self.run_cli("journal", "list")["requests"], [])
 
 
 if __name__ == "__main__":
