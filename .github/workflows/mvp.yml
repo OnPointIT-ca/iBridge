@@ -11,28 +11,22 @@ permissions:
 jobs:
   components:
     runs-on: ubuntu-latest
-    outputs:
-      native: ${{ steps.detect.outputs.native }}
-      gateway: ${{ steps.detect.outputs.gateway }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - id: detect
-        shell: bash
+      - name: Require complete MVP source
         run: |
-          if [[ -f macos/Package.swift ]]; then echo 'native=true' >> "$GITHUB_OUTPUT"; fi
-          if [[ -f gateway/package-lock.json ]]; then echo 'gateway=true' >> "$GITHUB_OUTPUT"; fi
+          test -f macos/Package.swift
+          test -f gateway/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: python scripts/export_operations.py --check
       - run: python -m unittest discover -s tests -p 'test_macos_installation.py' -v
-      - run: bash -n scripts/build_macos_app.sh
+      - run: bash -n scripts/build_macos_app.sh scripts/install_macos.sh scripts/status_macos.sh scripts/ibridge.sh
 
   gateway:
-    needs: components
-    if: needs.components.outputs.gateway == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,16 +37,22 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: gateway/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r scripts/requirements-compatibility.txt
       - run: npm ci
         working-directory: gateway
       - run: npm run build
         working-directory: gateway
       - run: npm test
         working-directory: gateway
+      - name: Test Hermes against the built gateway
+        env:
+          IBRIDGE_REQUIRE_GATEWAY_TESTS: '1'
+        run: python3 -m unittest discover -s tests -v
 
   macos:
-    needs: components
-    if: needs.components.outputs.native == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +69,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - name: Test installer path and preservation behavior
+        run: python3 -m unittest discover -s tests -p 'test_macos_installation.py' -v
       - name: Confirm hardware architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
@@ -88,6 +95,14 @@ jobs:
               subprocess.run(['build/package/iBridge.app/Contents/MacOS/iBridgeHost', '--check'],
                              check=True, timeout=30, env=env)
           PY
+      - name: Smoke-test real installation without starting login agents
+        run: |
+          scripts/install_macos.sh --no-start \
+            --app-source "$PWD/build/package/iBridge.app" \
+            --home "$RUNNER_TEMP/iBridge State" \
+            --app-destination "$RUNNER_TEMP/Applications With Spaces/iBridge.app" \
+            --launch-agents-dir "$RUNNER_TEMP/iBridge LaunchAgents"
+          scripts/ibridge.sh --home "$RUNNER_TEMP/iBridge State" client list
       - name: Preserve application permissions in download
         env:
           BUILD_ARCH: ${{ matrix.arch }}

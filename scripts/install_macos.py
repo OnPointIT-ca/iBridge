@@ -135,7 +135,7 @@ def install_prepared(app_source, runtime_source, state, app, agents, node, start
     try:
         # init is idempotent and retains the existing clients and write journal.
         runner([str(node), str(runtime / "gateway/dist/cli.js"), "init"], env=env, check=True)
-        for label in LABELS:
+        for label in reversed(LABELS):
             target = f"gui/{os.getuid()}/{label}"
             result = runner(["/bin/launchctl", "print", target], capture_output=True, check=False)
             if result.returncode == 0:
