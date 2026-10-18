@@ -47,11 +47,25 @@ header. This personal MVP does not implement OAuth discovery or consent.
 | REST and MCP gateway | Shared command layer, scoped hashed tokens, rotation/revocation, input validation |
 | Durable writes | SQLite records before dispatch, saved receipts, restart-safe replay, blocked uncertain outcomes |
 | Hermes plugin | 21 registered tools, current capability checks, bounded responses, sanitized errors |
+| Android client | Android 8.0+ read-only client, encrypted connection storage, capability discovery, service browsing, and small Drive file export |
 | Installation | User LaunchAgents, preserved state on upgrades, signed bundles, arm64 and Intel CI artifacts |
 
 Notes and Messages tools remain registered for future adapters but are explicitly
 unavailable. This MVP does not send messages, delete data, make bulk changes,
 create event invitations, or support recurring event creation.
+
+## Android app
+
+The [native Android app](android/README.md) connects to the same v1 server with
+client-specific tokens. It browses Calendar, Reminders, Contacts, and selected
+Drive folders. Notes and Messages actions are reserved for future server adapters
+and remain unavailable in the current MVP. Saved credentials use Android Keystore
+encryption; small Drive files can be exported through the system file picker.
+
+This first Android version is read-only. It does not sign in to iCloud directly
+or synchronize into Android's system apps. Build and install instructions are in
+[android/README.md](android/README.md). Client fixtures and emulator checks do not
+replace live integration testing with your Mac.
 
 ## Architecture
 
@@ -60,6 +74,7 @@ flowchart LR
     H[Remote Hermes] --> P[Python plugin]
     A[Other remote agent] -->|MCP| G
     P -->|REST| G[Private HTTPS / Tailscale Serve]
+    M[Android app] -->|REST| G
     G --> T[TypeScript gateway on loopback]
     T --> J[Private SQLite write journal]
     T -->|Protected Unix socket| S[Swift user-session host]
@@ -130,6 +145,7 @@ after relevant validation, and reflected in this README.
 ## Project documents
 
 - [Mac installation, private HTTPS, and live acceptance](docs/macos-setup.md)
+- [Android client](android/README.md)
 - [Hermes plugin](plugins/hermes-ibridge/README.md)
 - [MCP transport and client configuration](docs/mcp.md)
 - [Gateway administration](gateway/README.md)

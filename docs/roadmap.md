@@ -50,9 +50,16 @@ installed host/helper identity, not just terminal scripts. Include denied/revoke
 permissions, cloud-only files, uncertain write outcomes, retries, and reboot
 followed by login. Mac unavailability is not an empty successful search.
 
+## Android client
+
+The [Android client](../android/README.md) implements the v1 read operations,
+encrypted connection storage, and explicit pagination. Its live acceptance work
+depends on the same Mac host/gateway milestone above. Android writes and native
+Android Contacts/Calendar synchronization remain future work.
+
 ## Deferred
 
-Public hosting, accounts/billing, multi-user administration, mobile clients,
+Public hosting, accounts/billing, multi-user administration,
 automatic updating, broad provider abstraction, and full-content indexing.
 Message sending, destructive actions, and bulk writes need approvals bound to
 exact operations; no plugin tool should grant its own approval.

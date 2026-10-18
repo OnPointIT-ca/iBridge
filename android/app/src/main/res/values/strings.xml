@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">iBridge</string>
+    <string name="remember_connection">Remember this connection</string>
+    <item name="bridge_address" type="id" />
+    <item name="bridge_token" type="id" />
+</resources>
