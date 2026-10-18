@@ -1,5 +1,7 @@
 """Validate the small JSON Schema subset used by this plugin, before networking."""
 
+import base64
+import binascii
 import re
 from datetime import datetime
 
@@ -9,6 +11,8 @@ from .client import BridgeError
 def timestamp(value):
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})", value):
         raise ValueError("Timestamp requires an explicit offset")
+    if value[-1] != "Z" and (int(value[-5:-3]) > 23 or int(value[-2:]) > 59):
+        raise ValueError("Invalid timezone offset")
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
@@ -39,6 +43,8 @@ def validate(operation, args):
                 raise BridgeError("invalid_arguments", f"{key} has an invalid length.")
             if any(ord(char) < 32 and char not in "\n\t" for char in value):
                 raise BridgeError("invalid_arguments", f"{key} contains unsupported control characters.")
+            if "pattern" in rule and not re.fullmatch(rule["pattern"], value):
+                raise BridgeError("invalid_arguments", f"{key} contains unsupported characters or has an invalid format.")
             if rule.get("format") == "relative-path":
                 if value.startswith("/") or "\\" in value or any(part in {".", ".."} for part in value.split("/")):
                     raise BridgeError("invalid_arguments", "Drive paths must remain relative to an authorized root.")
@@ -47,9 +53,18 @@ def validate(operation, args):
                     timestamp(value)
                 except ValueError:
                     raise BridgeError("invalid_arguments", f"{key} must be a valid RFC 3339 timestamp with a timezone.") from None
+            if rule.get("format") == "base64":
+                try:
+                    decoded = base64.b64decode(value, validate=True)
+                    if len(decoded) > 262144 or base64.b64encode(decoded).decode("ascii") != value:
+                        raise ValueError("Noncanonical or oversized base64")
+                except (ValueError, binascii.Error):
+                    raise BridgeError("invalid_arguments", "content_base64 must be canonical base64 for at most 262144 bytes.") from None
     if "start" in values and "end" in values and timestamp(values["end"]) <= timestamp(values["start"]):
         raise BridgeError("invalid_arguments", "end must be later than start.")
     for key in operation.path_keys:
         if values[key] in {".", ".."}:
             raise BridgeError("invalid_arguments", "Resource IDs cannot be dot path segments.")
+    if operation.capability == "drive.upload" and any(not part for part in values["path"].split("/")):
+        raise BridgeError("invalid_arguments", "Upload paths must identify a file without empty path segments.")
     return values

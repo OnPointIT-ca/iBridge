@@ -21,20 +21,31 @@ def server(responder):
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            record = {"method": self.command, "path": self.path, "headers": self.headers, "body": None}
+            raw_body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            record = {"method": self.command, "path": self.path, "headers": self.headers, "body": json.loads(raw_body) if raw_body else None}
             requests.append(record)
-            status, body, headers = responder(record)
+            response = responder(record)
+            if response is None:
+                # Simulate a connection lost after the server receives a write.
+                self.close_connection = True
+                return
+            status, body, headers = response
             self.send_response(status)
             self.send_header("Content-Type", headers.get("Content-Type", "application/json"))
             for key, value in headers.items():
                 if key != "Content-Type":
                     self.send_header(key, value)
             self.end_headers()
-            payload = body if isinstance(body, bytes) else json.dumps(body).encode()
             try:
-                self.wfile.write(payload)
+                if callable(body):
+                    body(self.wfile)
+                else:
+                    payload = body if isinstance(body, bytes) else json.dumps(body).encode()
+                    self.wfile.write(payload)
             except (BrokenPipeError, ConnectionResetError):
                 pass
+
+        do_POST = do_GET
 
         def log_message(self, *args):
             pass
