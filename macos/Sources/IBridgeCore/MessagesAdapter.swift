@@ -223,7 +223,9 @@ private final class MessagesDatabase {
             sqlite3_limit(handle, SQLITE_LIMIT_LENGTH, 1_048_576)
             sqlite3_limit(handle, SQLITE_LIMIT_SQL_LENGTH, 32_768)
             sqlite3_limit(handle, SQLITE_LIMIT_VARIABLE_NUMBER, 1_024)
-            sqlite3_enable_load_extension(handle, 0)
+            // Apple's SDK omits the extension-loading API. The connection never
+            // enables extensions, and the SQL authorizer also denies functions
+            // other than the built-in length() used below.
             sqlite3_progress_handler(handle, 1_000, { pointer in
                 guard let pointer else { return 1 }
                 let budget = Unmanaged<MessagesQueryBudget>.fromOpaque(pointer).takeUnretainedValue()
