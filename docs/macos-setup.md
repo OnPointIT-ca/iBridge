@@ -2,8 +2,9 @@
 
 The MVP runs in your logged-in macOS 14+ user session. Apple silicon uses a native
 arm64 host; Intel uses x86_64. It provides Calendar, Reminders, Contacts, and
-explicitly selected Drive folders through the same REST and MCP command layer.
-Notes and Messages remain unavailable. Keep System Integrity Protection enabled.
+explicitly selected Drive folders, optional Notes Automation, and optional
+read-only Messages history through the same REST and MCP command layer.
+Notes and Messages are off by default. Keep System Integrity Protection enabled.
 
 ## Prerequisites
 
@@ -38,6 +39,7 @@ its architecture and code signature, and installs:
 | Gateway releases | State directory + `/runtime/releases/<installation-id>` |
 | Client tokens (stored as hashes) and write journal | State directory + `/gateway.sqlite` |
 | Native socket | State directory + `/host.sock` |
+| Local Notes/Messages enablement | State directory + `/adapter-settings.json` |
 | Logs | State directory + `/logs` |
 | Host login agent | `~/Library/LaunchAgents/ca.onpointit.ibridge.host.plist` |
 | Gateway login agent | `~/Library/LaunchAgents/ca.onpointit.ibridge.gateway.plist` |
@@ -116,6 +118,39 @@ Drive uploads create new files of up to 256 KiB; they do not overwrite existing
 files. Cloud-only files can report `downloading`; retry the read later. Calendar
 writes create simple timed events, without invitations or recurrence.
 
+### Enable Notes and Messages locally
+
+Both adapters start disabled. A remote token or request cannot enable them or
+show a macOS permission prompt.
+
+For Notes, choose **Enable Notes…** in the menu bar app and allow iBridge to
+control Notes. If previously denied, open System Settings → Privacy & Security →
+Automation and allow **iBridge → Notes**, then enable it again. Keep Notes open
+if status reports `not_running`; use **Refresh Status** after changes. Notes reads
+ordinary unlocked notes as plain text. The returned body includes the title;
+rich formatting is lost and attachments are not exported. Note creation creates
+a new note and uses the same durable write journal as other writes.
+
+For Messages, choose **Enable History**, then **Open Full Disk Access Settings**.
+In System Settings → Privacy & Security → Full Disk Access, add/enable the
+installed `~/Applications/iBridge.app`. Restart iBridge after granting access:
+
+```sh
+launchctl kickstart -k "gui/$(id -u)/ca.onpointit.ibridge.host"
+```
+
+The adapter reads only the current user's fixed `~/Library/Messages/chat.db`
+location. It never sends messages or changes conversation content. It guards
+Apple's private database schema and can become unavailable after a macOS schema
+change. SQLite may update the shared-memory file for read coordination; the
+database and its content are opened read-only. No attachment files are opened.
+
+Local enablement persists across upgrades in the private state directory.
+**Disable Notes** or **Disable History** blocks subsequent remote access without
+changing other services. Client tokens still need the explicit container grants
+described below. Read [adapter behavior and bounds](notes-messages.md) before
+depending on complete searches or rich-content fidelity.
+
 ## Create a scoped agent token
 
 Use the wrapper to address the installed gateway and its exact Node executable:
@@ -178,6 +213,50 @@ same ID. A connection loss may leave an uncertain outcome: inspect the Mac and
 `scripts/ibridge.sh journal list` before taking further action. Uncertain writes
 are retained and are not automatically dispatched again.
 
+### Grant Notes folders and Messages conversations
+
+After local enablement, create a temporary listing-only client to discover IDs:
+
+```sh
+scripts/ibridge.sh client create --name setup-notes-messages \
+  --operations notes.folders,messages.chats \
+  --note-folder-ids '*' --message-chat-ids '*'
+read -rs IBRIDGE_TOKEN
+export IBRIDGE_TOKEN
+curl --fail --silent --show-error \
+  -H "Authorization: Bearer $IBRIDGE_TOKEN" \
+  http://127.0.0.1:21420/api/v1/notes/folders
+curl --fail --silent --show-error \
+  -H "Authorization: Bearer $IBRIDGE_TOKEN" \
+  http://127.0.0.1:21420/api/v1/messages/chats
+unset IBRIDGE_TOKEN
+```
+
+Use the printed setup token at the hidden input prompt. Listings return one page;
+if `next_cursor` is present, request the next page with that opaque cursor. Record
+only the folder and conversation IDs you want the permanent agent to access:
+
+```sh
+scripts/ibridge.sh client create --name hermes-notes-messages \
+  --operations notes.folders,notes.search,notes.read,messages.chats,messages.search,messages.read \
+  --note-folder-ids NOTES_FOLDER_ID --message-chat-ids MESSAGE_CHAT_ID
+scripts/ibridge.sh client revoke SETUP_CLIENT_ID
+```
+
+Replace the placeholders, including the setup client's ID. Add `notes.create`
+only to allow new plain-text notes. Comma-separated IDs allow multiple exact
+containers. A Notes folder grant does **not** include subfolders; add each
+subfolder ID separately. Omitted folder or chat grants deny that service even
+when operation scopes include `'*'`. Existing clients also default to empty
+Notes/Messages grants. Rotation preserves grants; to enable new services, issue
+a replacement client with the intended scopes, update the agent's secret, and
+revoke the old client.
+
+For one token covering all services, include the existing calendar/list/root
+operation and resource flags alongside these new flags when creating its
+replacement. Search without `folder_id` or `chat_id` still stays within the
+token's authorized containers. Notes reads by ID check the actual folder too.
+
 ## Enable private HTTPS
 
 Find the Mac's HTTPS name in Tailscale, for example `my-mac.example-tailnet.ts.net`.
@@ -237,8 +316,30 @@ its user session running. The LaunchAgents do not run before login after reboot.
 GitHub Actions runs unit tests and compiles/executes the packaged `--check` mode
 on Apple silicon and Intel runners. It checks resources, architecture, and code
 signature; it has no Apple Account and does not grant live Calendar, Reminders,
-Contacts, or iCloud Drive permissions. Finish the acceptance checks above before
+Contacts, iCloud Drive, Notes Automation, or Messages Full Disk Access permissions.
+Finish the acceptance checks above and the optional adapter checks below before
 relying on unattended access to your own data.
+
+### Verify optional Notes and Messages access
+
+1. Enable Notes and grant a dedicated test folder to the agent. List folders,
+   search for a known ordinary note, and read it. Confirm body/title and content
+   metadata; try a locked note and a note in an ungranted folder.
+2. If `notes.create` is authorized, create one test note with a stable request ID.
+   Confirm it in Notes, restart the gateway, and replay identical arguments with
+   the same ID. Confirm a single note exists. Inspect another Apple device
+   separately to check synchronization.
+3. Enable Messages history and grant one known conversation. List chats, search
+   for a known text, and read the chat. Check `body_status`, `scan_truncated`, and
+   `search_complete`; compare any supported archived text with Messages itself.
+   Test an ungranted conversation and confirm denial. No test sends a message.
+4. Disable each adapter in the menu bar and confirm its capabilities become unavailable.
+   Also revoke Automation/Full Disk Access locally and verify denial after any
+   required app restart. Re-enable only the access you intend to retain.
+
+The [adapter reference](notes-messages.md) explains incomplete-search indicators
+and unsupported body formats. These live checks remain necessary even when CI
+passes on both CPU architectures.
 
 ## Stop, update, and diagnose
 

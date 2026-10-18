@@ -1,8 +1,9 @@
 # iBridge
 
 A personal bridge from an AI agent on another computer to your Mac's Calendar,
-Reminders, Contacts, and selected iCloud Drive folders. Runs on **macOS 14+**, with
-native **Apple silicon (arm64)** and Intel builds.
+Reminders, Contacts, selected iCloud Drive folders, Notes, and local Messages
+history. Runs on **macOS 14+**, with native **Apple silicon (arm64)** and Intel
+builds.
 
 Your Apple Account stays on the Mac. Remote clients use scoped tokens over private
 HTTPS and can access only the operations and containers you authorize.
@@ -44,14 +45,19 @@ header. This personal MVP does not implement OAuth discovery or consent.
 | Reminders | List authorized lists, read reminders, create and complete individual reminders |
 | Contacts | Search contacts after local permission and client operation authorization |
 | Drive | List/search selected roots, read small files, create-only uploads; 256 KiB file limit |
+| Notes | Locally enabled Automation, exact folder grants, unlocked plain-text reads/search and new-note creation |
+| Messages | Locally enabled, read-only history with Full Disk Access, exact conversation grants, bounded text search |
 | REST and MCP gateway | Shared command layer, scoped hashed tokens, rotation/revocation, input validation |
 | Durable writes | SQLite records before dispatch, saved receipts, restart-safe replay, blocked uncertain outcomes |
 | Hermes plugin | 21 registered tools, current capability checks, bounded responses, sanitized errors |
 | Installation | User LaunchAgents, preserved state on upgrades, signed bundles, arm64 and Intel CI artifacts |
 
-Notes and Messages tools remain registered for future adapters but are explicitly
-unavailable. This MVP does not send messages, delete data, make bulk changes,
-create event invitations, or support recurring event creation.
+Notes and Messages are **off by default**. Enable each in the Mac app and grant
+its folder or conversation IDs to a client. Existing tokens gain no new resource
+access. See [adapter setup and limits](docs/notes-messages.md).
+
+This MVP does not send messages, delete data, make bulk changes, create event
+invitations, or support recurring event creation.
 
 ## Architecture
 
@@ -65,11 +71,16 @@ flowchart LR
     T -->|Protected Unix socket| S[Swift user-session host]
     S --> E[EventKit and Contacts]
     S --> D[Selected Drive folder bookmarks]
+    S --> N[Notes Automation]
+    S --> M[Read-only local Messages history]
 ```
 
 REST and MCP use the same authorization and write journal. The host checks macOS
 permissions and resource boundaries again. Remote requests cannot trigger local
-permission prompts. No Apple Account credentials are sent to the remote agent.
+permission prompts. Notes uses authorized Apple Events. The optional Messages
+adapter reads the current user's local database through guarded, read-only SQLite
+queries; it does not write conversation content or send messages. No Apple Account
+credentials are sent to the remote agent.
 
 Writes require a stable `request_id`. Replaying a completed request with the same
 client identity, key, and arguments returns its saved receipt. Reusing the key
@@ -87,7 +98,9 @@ and smoke-tests installation. The plugin is also checked with the official
 [Hermes Plugin Doctor and catalog validator](docs/hermes-compatibility.md).
 
 The cross-language workflow tests run the real plugin and gateway against a native
-IPC fixture. macOS CI has no Apple Account. **Live permissions, your selected
+IPC fixture. Native Notes tests compile the automation script and inject a
+transport; Messages tests use synthetic databases and bounded archived-body
+fixtures. macOS CI has no Apple Account. **Live permissions, your selected
 folders, Tailscale connectivity, and iCloud synchronization still require the
 [acceptance checks on your Mac](docs/macos-setup.md#verify-the-complete-workflow).**
 
@@ -130,6 +143,7 @@ after relevant validation, and reflected in this README.
 ## Project documents
 
 - [Mac installation, private HTTPS, and live acceptance](docs/macos-setup.md)
+- [Notes and Messages setup, resource grants, and limits](docs/notes-messages.md)
 - [Hermes plugin](plugins/hermes-ibridge/README.md)
 - [MCP transport and client configuration](docs/mcp.md)
 - [Gateway administration](gateway/README.md)

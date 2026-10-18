@@ -29,8 +29,11 @@ parallel subagents with isolated worktrees for independent features.
    remote-agent-to-Reminders workflow on the target Mac. Test permission
    revocation, logout/login, sleep/wake, reconnects, and iCloud delivery. Gateway
    restart, revocation, and uncertain write recovery already have automated tests.
-8. **Deferred:** Notes and Messages adapters, enabled only after implementation
-   and testing on the Mac.
+8. **Implemented, live acceptance pending:** Notes Automation with exact-folder
+   reads/search and journaled creation; optional read-only Messages history with
+   conversation policies, guarded private schema, and bounded body decoding.
+   Both are off by default and require local enablement plus macOS permissions.
+   Validate on the intended Mac using the [adapter checks](notes-messages.md).
 9. **Deferred:** incremental change detection and resumable subscriptions;
    uncertain-write reconciliation remains a manual local inspection.
 

@@ -1,9 +1,10 @@
 # iBridge HTTP contract v1
 
 This is the v1 contract implemented by the TypeScript gateway and consumed by
-the Hermes plugin. The Swift host implements Calendar, Reminders, Contacts, and
-selected Drive folders. Notes and Messages operations below are reserved and
-reported unavailable. See [Mac setup](macos-setup.md) for deployment and live
+the Hermes plugin. The Swift host implements Calendar, Reminders, Contacts,
+selected Drive folders, optional Notes Automation, and optional read-only local
+Messages history. Notes and Messages require local enablement and explicit
+per-client container grants. See [Mac setup](macos-setup.md) for deployment and live
 acceptance checks; automated fixtures do not establish access to your Apple data.
 
 ## Transport and identity
@@ -101,9 +102,27 @@ returns `data.content_base64`, `data.media_type`, `data.size_bytes`, and
 without content. Reject files larger than the requested maximum rather than
 silently truncating them. Reads never write files on the agent's machine.
 
-Notes and Messages capabilities remain unavailable until validated on the
-specific macOS host. Unsupported rich/locked note content must be reported, not
-silently flattened into an apparently complete result.
+Notes and Messages start disabled. Their capabilities require local enablement,
+macOS access, a usable adapter, and nonempty `note_folder_ids` or
+`message_chat_ids` policy arrays. Empty or missing arrays deny the service,
+including for older clients whose operation scope is `*`. Notes folder grants
+match exact IDs and do not include subfolders implicitly. Searches without a
+folder/chat argument remain within the client's resource grants. `notes.read`
+checks the note's actual containing folder on the Mac.
+
+Notes return `content_format: "plain_text"`, `body_includes_title: true`,
+`rich_content_preserved: false`, `attachments_included: false`, and
+`has_attachments`. Search returns a short `snippet`; reads return `body`. Locked
+notes cannot be read. Rich formatting is lost and attachments are not exported.
+
+Messages return `source: "local_messages_database"`, newest-first items with
+`body_status`, and bounded-scan metadata. Text comes from plain-text columns or a
+strictly bounded decoder for supported archived-body formats. Unsupported bodies
+are explicitly marked rather than treated as complete text. Search includes
+`search_complete`, `search_scope`, `scan_truncated`, and unsupported/truncated body
+counts; an empty result with `search_complete: false` is not evidence that the
+full history has no match. Attachments are never opened. See
+[adapter behavior and limits](notes-messages.md) for exact bounds and statuses.
 
 ## Controlled write operations
 
@@ -139,7 +158,9 @@ seconds are not supported by this client. Titles are 1–512 characters; optiona
 `notes` and required Notes `body` allow 0–65536 characters. Optional `location`
 allows 1–2048 characters. All are plain text: adapters must escape content before
 using an HTML or application-automation interface, never execute or interpret
-it as code. Notes writes are unavailable in the MVP.
+it as code. Notes creation uses authorized Apple Events with escaped text and
+creates a new note in the exact authorized folder. It does not edit or replace
+an existing note; the gateway's durable journal applies to Notes writes too.
 
 Drive writes create a new file only. `content_base64` must be canonical standard
 base64 for 0–262144 decoded bytes (256 KiB). `path` is a nonempty relative
