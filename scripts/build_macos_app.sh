@@ -39,11 +39,20 @@ if [[ "$architecture" == universal ]]; then
   intel_bin=$(build_arch x86_64)
   xcrun lipo -create "$arm_bin/iBridgeHost" "$intel_bin/iBridgeHost" -output "$stage/iBridge.app/Contents/MacOS/iBridgeHost"
   xcrun lipo -verify_arch arm64 x86_64 "$stage/iBridge.app/Contents/MacOS/iBridgeHost"
+  resource_bin=$arm_bin
 else
   bin=$(build_arch "$architecture")
   cp "$bin/iBridgeHost" "$stage/iBridge.app/Contents/MacOS/iBridgeHost"
   xcrun lipo -verify_arch "$architecture" "$stage/iBridge.app/Contents/MacOS/iBridgeHost"
+  resource_bin=$bin
 fi
+mkdir -p "$stage/iBridge.app/Contents/Resources"
+shopt -s nullglob
+resources=("$resource_bin"/*.bundle)
+((${#resources[@]})) || { printf '%s\n' 'SwiftPM resource bundle is missing.' >&2; exit 1; }
+for resource in "${resources[@]}"; do
+  cp -R "$resource" "$stage/iBridge.app/Contents/Resources/"
+done
 /usr/bin/plutil -lint "$stage/iBridge.app/Contents/Info.plist"
 /usr/bin/codesign --force --sign "${IBRIDGE_SIGNING_IDENTITY:--}" --timestamp=none "$stage/iBridge.app"
 /usr/bin/codesign --verify --deep --strict "$stage/iBridge.app"
