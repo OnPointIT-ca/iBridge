@@ -7,9 +7,11 @@ toolset. Relative imports are compatible with Hermes' namespaced plugin loader.
 Handlers return JSON strings and accept Hermes' injected keyword arguments.
 Registration does not contact the bridge or read Apple data.
 
-The repository currently contains the **client only**. Passing these checks does
-not demonstrate a working macOS server, Apple permission prompts, iCloud sync,
-or end-to-end access from a deployed Hermes agent.
+The repository contains the plugin, macOS host, gateway, and Android client.
+The checks described here validate the **Hermes integration**. They do not
+demonstrate live Apple permission grants, iCloud sync, or end-to-end access from
+a deployed Hermes agent. See [current development status](../Development.md)
+for the complete validation inventory and remaining acceptance work.
 
 ## Verified reference
 
@@ -20,10 +22,11 @@ environment containing the dependencies in `scripts/requirements-compatibility.t
 This is an interface compatibility check, not a claim about every Hermes release.
 The plugin's Python 3.10 minimum does not override Hermes' interpreter requirements.
 
-The final v0.3.0 plugin passed both official checks with **21 registered tools**
-and no validation warnings. The combined local client/installation suite passed
-all **42 tests**, including schema validation. These counts describe this version;
-rerun the checks whenever tools or host compatibility change.
+The v0.3.0 plugin passed both official checks with **21 registered tools**
+and no validation warnings. The repository test suite now also covers the gateway
+and installers; current counts and revision-specific evidence are recorded in
+[Development.md](../Development.md#validation-evidence-and-its-limits).
+Rerun relevant checks whenever tools or host compatibility change.
 
 | Check | What actually runs | Scope |
 | --- | --- | --- |
@@ -82,5 +85,6 @@ overwrite, credential copying, config editing, or dependency installation.
 During an update, keep any old package backup outside the profile's `plugins`
 directory, so Hermes cannot discover both copies. Installation and enablement
 are separate: configure the URL/token in the intended profile, enable `ibridge`
-through Hermes, and restart its processes. The plugin is ready to connect only
-after a server implementing [the bridge contract](bridge-api.md) exists.
+through Hermes, and restart its processes. Install and configure the existing
+Mac host/gateway using the [Mac setup guide](macos-setup.md), then verify the
+deployed connection with the intended client token.

@@ -157,6 +157,7 @@ after relevant validation, and reflected in this README.
 
 ## Project documents
 
+- [Development status and production-readiness backlog](Development.md)
 - [Mac installation, private HTTPS, and live acceptance](docs/macos-setup.md)
 - [Notes and Messages setup, resource grants, and limits](docs/notes-messages.md)
 - [Android client](android/README.md)
