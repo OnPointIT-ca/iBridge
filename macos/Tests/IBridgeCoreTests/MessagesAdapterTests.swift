@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import SQLite3
+import Darwin
 @testable import IBridgeCore
 
 final class MessagesAdapterTests: XCTestCase {
@@ -60,6 +61,18 @@ final class MessagesAdapterTests: XCTestCase {
             guard sqlite3_step(statement) == SQLITE_DONE else { throw NSError(domain: "Fixture", code: 4) }
             try sql("INSERT INTO chat_message_join VALUES (1, \(sqlite3_last_insert_rowid(writer)))")
         }
+    }
+
+    func testMacPhysicalTemporaryPathSupportsReadOnlyNoFollowSQLite() throws {
+        let fixture = try Fixture()
+        let physical = try XCTUnwrap(realpath(fixture.url.path, nil))
+        defer { free(physical) }
+        var handle: OpaquePointer?
+        defer { if let handle { sqlite3_close(handle) } }
+        let status = sqlite3_open_v2(physical, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_NOFOLLOW, nil)
+        let diagnostic = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "No handle"
+        XCTAssertEqual(status, SQLITE_OK, "Synthetic fixture SQLite open failed: code \(status), \(diagnostic)")
+        XCTAssertEqual(sqlite3_db_readonly(handle, "main"), 1)
     }
 
     @MainActor
