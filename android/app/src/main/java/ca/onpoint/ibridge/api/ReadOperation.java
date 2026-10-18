@@ -4,6 +4,7 @@ import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -120,8 +121,11 @@ public enum ReadOperation {
             }
             result.put(argument.name, value);
         }
-        if (result.containsKey("start") && timestamp(result.get("end")).compareTo(timestamp(result.get("start"))) <= 0) {
-            throw new BridgeException("invalid_arguments", "End must be later than start.");
+        if (result.containsKey("start")) {
+            BigDecimal interval = timestamp(result.get("end")).subtract(timestamp(result.get("start")));
+            if (interval.signum() <= 0 || interval.compareTo(BigDecimal.valueOf(366L * 24 * 60 * 60)) > 0) {
+                throw new BridgeException("invalid_arguments", "The event range must be positive and at most 366 days.");
+            }
         }
         return result;
     }
@@ -143,6 +147,10 @@ public enum ReadOperation {
         }
         int length = value.codePointCount(0, value.length());
         if (length < argument.minimum || length > argument.maximum) throw invalid();
+        if (argument.name.equals("query") && value.codePoints().allMatch(
+                character -> Character.isWhitespace(character) || Character.isSpaceChar(character))) {
+            throw new BridgeException("invalid_arguments", "Enter search text containing more than whitespace.");
+        }
         for (int index = 0; index < value.length(); index++) {
             char character = value.charAt(index);
             if ((character < 32 && character != '\n' && character != '\t') || character == 127) throw invalid();
@@ -152,9 +160,11 @@ public enum ReadOperation {
         }
         if (argument.kind == Kind.DATE) timestamp(value);
         if (argument.kind == Kind.PATH) {
-            if (value.startsWith("/") || value.contains("\\")) throw invalidPath();
-            for (String part : value.split("/", -1)) {
-                if (part.equals(".") || part.equals("..")) throw invalidPath();
+            if (value.startsWith("/") || value.contains("\\") || value.getBytes(StandardCharsets.UTF_8).length > 2048) throw invalidPath();
+            if (!value.isEmpty()) {
+                for (String part : value.split("/", -1)) {
+                    if (part.isEmpty() || part.equals(".") || part.equals("..")) throw invalidPath();
+                }
             }
         }
     }
@@ -206,7 +216,7 @@ public enum ReadOperation {
     }
 
     private static BridgeException invalidPath() {
-        return new BridgeException("invalid_arguments", "Drive paths must stay relative to the selected root without dot segments or backslashes.");
+        return new BridgeException("invalid_arguments", "Use a relative Drive path of at most 2048 UTF-8 bytes, without empty or dot segments or backslashes.");
     }
 
     private static BridgeException invalidDate() {

@@ -145,7 +145,6 @@ public final class BridgeClient {
         for (int index = 0; index < items.length(); index++) {
             JSONObject item = items.optJSONObject(index);
             if (item == null || !(item.opt("id") instanceof String) || item.optString("id").isEmpty()
-                    || item.optString("id").codePointCount(0, item.optString("id").length()) > 512
                     || (namedContainer && !(item.opt("name") instanceof String))) throw invalidEnvelope();
         }
     }

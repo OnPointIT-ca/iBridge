@@ -3,8 +3,10 @@
 Run this plugin on the machine hosting Hermes. It calls your Mac's authenticated
 iBridge API. It does not need your Apple Account credentials.
 
-**Status:** client implementation only. The iBridge macOS host/server is not yet
-implemented. Tests use a contract fixture, not Apple services.
+**Status:** the plugin and macOS MVP are implemented. Set up the Mac using the
+[installation guide](../../docs/macos-setup.md), then configure this remote client.
+Automated integration tests use native fixtures; verify Apple permissions and
+synchronization on your own Mac.
 
 ## Install
 
@@ -48,7 +50,8 @@ For the default profile, use `hermes -p default` and `~/.hermes/plugins/ibridge`
 For a custom root, set `HERMES_HOME` to its exact profile home when running Hermes.
 Restart the Hermes processes using the profile, including its gateway, after
 installation or configuration. Tools remain unavailable until the URL and token
-are configured; there is no macOS server in this repository to issue that token yet.
+are configured. Issue the scoped token with the Mac's `scripts/ibridge.sh client create`
+command, following the setup guide.
 
 For updates, stop the affected Hermes processes and move the old `ibridge`
 directory **outside** the profile's `plugins` directory, then rerun the installer.
@@ -130,7 +133,7 @@ No tool sends messages, deletes data, performs bulk changes, or approves itself.
 Each service call validates arguments and fetches current capabilities. Reads
 return one bounded page or record. Missing capabilities fail closed. The server
 still enforces permissions on the actual request. Notes and Messages are
-experimental until their adapters are validated on your Mac.
+unavailable in the MVP; their tools fail closed until an adapter is implemented.
 
 Example: ask Hermes to list authorized reminder lists, then read one by its ID.
 For calendar queries, use explicit timezones. Returned `meta.sync_state: local`

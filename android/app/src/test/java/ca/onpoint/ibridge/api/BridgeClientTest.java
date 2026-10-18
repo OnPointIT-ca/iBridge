@@ -197,6 +197,28 @@ public class BridgeClientTest {
         assertError("invalid_response", () -> client.read("calendar.list", Collections.singletonMap("limit", "1")));
     }
 
+    @Test public void preservesNativeDriveRowsAndLongResponseIds() throws Exception {
+        String path = repeat("a", 200) + "/" + repeat("b", 200) + "/" + repeat("c", 200);
+        String id = "root-id:" + path;
+        JSONObject row = new JSONObject().put("id", id).put("root_id", "root-id").put("name", repeat("c", 200))
+                .put("path", path).put("kind", "directory");
+        JSONObject data = new JSONObject().put("items", new JSONArray().put(row))
+                .put("scan_truncated", true).put("search_scope", "file_names");
+        server.enqueue(capabilities("drive.search", true));
+        server.enqueue(json(new JSONObject().put("data", data).toString()));
+        JSONObject result = client.read("drive.search", validArguments(ReadOperation.DRIVE_SEARCH)).getJSONObject("data");
+        JSONObject returnedRow = result.getJSONArray("items").getJSONObject(0);
+        assertEquals(id, returnedRow.getString("id"));
+        assertEquals(path, returnedRow.getString("path"));
+        assertEquals("directory", returnedRow.getString("kind"));
+        assertTrue(result.getBoolean("scan_truncated"));
+        assertEquals("file_names", result.getString("search_scope"));
+        // Response IDs need not match input-ID limits; inputs still follow their schema.
+        int requests = server.getRequestCount();
+        assertError("invalid_arguments", () -> client.read("notes.read", Collections.singletonMap("note_id", id)));
+        assertEquals(requests, server.getRequestCount());
+    }
+
     @Test public void encodesSearchAndCursorAsQueryValues() throws Exception {
         server.enqueue(capabilities("messages.search", true));
         server.enqueue(json("{\"data\":{\"items\":[],\"next_cursor\":\"next\"}}"));
@@ -227,6 +249,29 @@ public class BridgeClientTest {
         assertEquals(events.get("end"), request.getRequestUrl().queryParameter("end"));
     }
 
+    @Test public void acceptsAnExactly366DayEventRangeAfterTimezoneConversion() throws Exception {
+        Map<String, String> events = validArguments(ReadOperation.EVENTS);
+        events.put("start", "2024-01-01T12:00:00+02:00");
+        events.put("end", "2025-01-01T05:00:00-05:00");
+        server.enqueue(capabilities("calendar.events.list", true));
+        server.enqueue(json("{\"data\":{\"items\":[]}}"));
+        client.read("calendar.events.list", events);
+        takeRequest();
+        RecordedRequest request = takeRequest();
+        assertEquals(events.get("start"), request.getRequestUrl().queryParameter("start"));
+        assertEquals(events.get("end"), request.getRequestUrl().queryParameter("end"));
+    }
+
+    @Test public void rejectsEventRangesOver366DaysBeforeNetworking() {
+        Map<String, String> events = validArguments(ReadOperation.EVENTS);
+        events.put("start", "2024-01-01T12:00:00+02:00");
+        for (String end : new String[]{"2025-01-01T05:00:00.0000000001-05:00", "2025-01-01T12:00:00+01:00"}) {
+            events.put("end", end);
+            assertError("invalid_arguments", () -> client.read("calendar.events.list", events));
+        }
+        assertEquals(0, server.getRequestCount());
+    }
+
     @Test public void rejectsWritesUnknownArgumentsAndMissingFieldsBeforeNetworking() {
         assertError("invalid_arguments", () -> client.read("notes.create", Collections.emptyMap()));
         assertError("invalid_arguments", () -> client.read(null, Collections.emptyMap()));
@@ -252,13 +297,45 @@ public class BridgeClientTest {
     }
 
     @Test public void rejectsUnsafePathsAndDotIdsBeforeNetworking() {
-        for (String path : new String[]{"/private/file", "../file", "a/../file", "a/./file", "a\\file", "\u0000file"}) {
+        for (String path : new String[]{"/private/file", "../file", "a/../file", "a/./file", "a\\file", "a//file", "a/", "\u0000file"}) {
             Map<String, String> arguments = validArguments(ReadOperation.DRIVE_READ);
             arguments.put("path", path);
             assertError("invalid_arguments", () -> client.read("drive.read", arguments));
         }
         for (String id : new String[]{".", "..", "", "a\r\nInjected"}) {
             assertError("invalid_arguments", () -> client.read("notes.read", Collections.singletonMap("note_id", id)));
+        }
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test public void validatesNativeDriveUtf8PathLimitAndAllowsEmptyRootListing() {
+        StringBuilder path = new StringBuilder();
+        for (int index = 0; index < 9; index++) {
+            if (index > 0) path.append('/');
+            path.append(repeat("é", 113));
+        }
+        path.append("ééé");
+        String maximumPath = path.toString();
+        assertEquals(2048, maximumPath.getBytes(StandardCharsets.UTF_8).length);
+        Map<String, String> arguments = validArguments(ReadOperation.DRIVE_READ);
+        arguments.put("path", maximumPath);
+        assertEquals(maximumPath, ReadOperation.DRIVE_READ.validate(arguments).get("path"));
+        arguments.put("path", maximumPath + "a");
+        assertError("invalid_arguments", () -> client.read("drive.read", arguments));
+        assertEquals("", ReadOperation.DRIVE_LIST.validate(Collections.singletonMap("root_id", "root-id")).get("path"));
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test public void rejectsWhitespaceOnlyQueriesBeforeNetworking() {
+        for (ReadOperation operation : new ReadOperation[]{ReadOperation.CONTACTS, ReadOperation.DRIVE_SEARCH,
+                ReadOperation.NOTES_SEARCH, ReadOperation.MESSAGES_SEARCH}) {
+            Map<String, String> arguments = validArguments(operation);
+            for (String query : new String[]{" ", "\n\t", "\u00a0\u2003"}) {
+                arguments.put("query", query);
+                assertError("invalid_arguments", () -> client.read(operation.capability, arguments));
+            }
+            arguments.put("query", "  actual text  ");
+            assertEquals("  actual text  ", operation.validate(arguments).get("query"));
         }
         assertEquals(0, server.getRequestCount());
     }

@@ -48,7 +48,10 @@ export function validateArguments(op: Operation, input: unknown, query = false):
     args[key] = value;
   }
   for (const key of op.path_keys) if (args[key] === '.' || args[key] === '..') throw bad(key);
-  if (typeof args.start === 'string' && typeof args.end === 'string' && dateValue(args.end) <= dateValue(args.start)) throw bad('end');
+  if (typeof args.start === 'string' && typeof args.end === 'string') {
+    const interval = dateValue(args.end) - dateValue(args.start);
+    if (interval <= 0 || interval > 366 * 86400 * 1000) throw bad('end');
+  }
   return args;
 }
 export function canonical(value: unknown): string {

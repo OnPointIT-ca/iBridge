@@ -1,143 +1,153 @@
 # iBridge
 
-A personal macOS gateway for Calendar, Reminders, Contacts, iCloud Drive, Notes,
-and Messages, used by an AI agent running on another computer or server.
+A personal bridge from an AI agent on another computer to your Mac's Calendar,
+Reminders, Contacts, and selected iCloud Drive folders. Runs on **macOS 14+**, with
+native **Apple silicon (arm64)** and Intel builds.
 
-The Mac retains your Apple Account session. Remote clients receive access only
-to the bridge operations and resources you authorize.
+Your Apple Account stays on the Mac. Remote clients use scoped tokens over private
+HTTPS and can access only the operations and containers you authorize.
 
-## Implementation status
+## Get started
 
-**The Hermes Agent client plugin is implemented. The macOS bridge server is
-not implemented yet.** Client tests use a local HTTP contract fixture; they do
-not demonstrate live access to Apple services.
+Follow the [Mac setup guide](docs/macos-setup.md) to install the menu bar app and
+gateway, grant local permissions, select folders, and create a client token.
+From a checkout on your Mac, with Xcode Command Line Tools, Python 3.10+, and
+Node.js 24+ installed:
 
-| Component | Status |
-| --- | --- |
-| Native Hermes directory plugin | Implemented; 21 tools, registered without networking |
-| Authenticated HTTP client | Implemented; HTTPS, response-size limits, sanitized errors |
-| Capability discovery and read tools | Implemented for the six planned service modules |
-| Controlled write tools | Implemented; event/reminder/note creation, reminder completion, create-only file uploads |
-| Installer and Hermes compatibility checks | Implemented; profile-aware installer, pinned upstream checks, GitHub CI |
-| Android client | Read-only v1 client implemented; HTTPS connection, encrypted token storage, capability discovery, six service browsers, and small Drive file export; live Mac integration pending |
-| Swift host and macOS permission setup | Planned |
-| TypeScript REST/MCP gateway | Planned; [v1 HTTP contract](docs/bridge-api.md) defined |
-| Live Apple adapters and synchronization | Planned; need validation on your Mac |
-
-Notes and Messages remain experimental until their macOS adapters are tested.
-The plugin refuses operations absent from the server's caller-specific
-capability map. The server must also authorize each actual request.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A[Hermes on your remote machine] --> B[Python iBridge plugin]
-    B -->|Private HTTPS / Tailscale| C[Planned TypeScript gateway]
-    C -->|Protected local socket| D[Planned Swift user-session host]
-    D --> E[Apple frameworks and authorized app automation]
-    C --> F[Planned SQLite operation journal]
+```sh
+scripts/install_macos.sh --dry-run
+scripts/install_macos.sh
+scripts/status_macos.sh
 ```
 
-The planned REST and MCP interfaces share a command layer. Calendar and Reminders
-use EventKit, Contacts uses Contacts.framework, and Drive uses user-authorized
-filesystem locations. Notes and Messages need isolated compatibility-tested
-adapters. System Integrity Protection stays enabled.
-
-## Hermes integration
-
-Install the plugin on the machine running Hermes, following the
-[installation and configuration guide](plugins/hermes-ibridge/README.md).
-It requires Python 3.10+ and Hermes' native plugin interface. The plugin has no
-third-party Python runtime dependencies and never needs Apple Account credentials.
-
-From this checkout, install into the default profile (or pass `--hermes-home`
-with your agent's actual profile home):
+Then enable private HTTPS with Tailscale Serve using the guide. On the computer
+running Hermes, [install and configure the plugin](plugins/hermes-ibridge/README.md):
 
 ```sh
 python3 scripts/install_hermes_plugin.py
 ```
 
-The installer refuses to overwrite an existing plugin and leaves Hermes settings
-and secrets untouched. Follow the guide to configure and enable it in the same
-profile. Hermes itself may require a newer Python version than the plugin.
+Set `IBRIDGE_URL` to the Mac's HTTPS origin and `IBRIDGE_TOKEN` to its scoped
+client token in that Hermes profile's secret settings. Enable the plugin and
+restart the profile. Begin with `ibridge_capabilities`, discover the authorized
+calendar/list/root IDs, and try the guide's calendar → document → reminder workflow.
 
-Configure `IBRIDGE_URL` with the bridge's HTTPS origin and `IBRIDGE_TOKEN` with a
-client-specific token in Hermes' environment/secret settings. The server must
-exist and issue the token before service calls can succeed.
+Other agents can use the [MCP endpoint](docs/mcp.md) at `/mcp` with a static Bearer
+header. This personal MVP does not implement OAuth discovery or consent.
 
-Start with `ibridge_capabilities`, then discover calendar/list/folder/root IDs
-before requesting their data. Lists return one page at a time. Small Drive files
-are returned as base64, with a 256 KiB file limit. Returned content is data, not
-instructions or authorization for subsequent actions.
+## What the MVP includes
 
-The five write tools are `ibridge_calendar_create_event`,
-`ibridge_reminders_create`, `ibridge_reminders_complete`, `ibridge_notes_create`,
-and `ibridge_drive_upload`. Each requires a stable `request_id`; if an outcome
-is unknown, reconcile it before retrying and preserve the same key and arguments.
-The server must implement durable idempotency. The plugin alone cannot prevent
-duplicates after a server crash. Uploads create new files and never overwrite.
+| Component | Implemented behavior |
+| --- | --- |
+| Swift menu bar app | Local permission controls, status, selected-folder bookmarks, same-user private socket |
+| Calendar | List authorized calendars, read time-bounded events, create simple timed events |
+| Reminders | List authorized lists, read reminders, create and complete individual reminders |
+| Contacts | Search contacts after local permission and client operation authorization |
+| Drive | List/search selected roots, read small files, create-only uploads; 256 KiB file limit |
+| REST and MCP gateway | Shared command layer, scoped hashed tokens, rotation/revocation, input validation |
+| Durable writes | SQLite records before dispatch, saved receipts, restart-safe replay, blocked uncertain outcomes |
+| Hermes plugin | 21 registered tools, current capability checks, bounded responses, sanitized errors |
+| Android client | Android 8.0+ read-only client, encrypted connection storage, capability discovery, service browsing, and small Drive file export |
+| Installation | User LaunchAgents, preserved state on upgrades, signed bundles, arm64 and Intel CI artifacts |
+
+Notes and Messages tools remain registered for future adapters but are explicitly
+unavailable. This MVP does not send messages, delete data, make bulk changes,
+create event invitations, or support recurring event creation.
 
 ## Android app
 
-The [native Android app](android/README.md) uses the same v1 server contract and
-client-specific tokens. It browses Calendar, Reminders, Contacts, iCloud Drive,
-Notes, and Messages according to the server's available capabilities. It supports
-Android 8.0 and newer, stores saved credentials with Android Keystore encryption,
-and exports small Drive files through the system file picker. Android access is
-read-only in this first version; it does not sign in to iCloud directly or sync
-into Android's system apps. A reachable, compatible Mac bridge is still required.
+The [native Android app](android/README.md) connects to the same v1 server with
+client-specific tokens. It browses Calendar, Reminders, Contacts, and selected
+Drive folders. Notes and Messages actions are reserved for future server adapters
+and remain unavailable in the current MVP. Saved credentials use Android Keystore
+encryption; small Drive files can be exported through the system file picker.
 
-Build, test, and install instructions are in [android/README.md](android/README.md).
-Client fixture tests must not be treated as live Apple service validation.
+This first Android version is read-only. It does not sign in to iCloud directly
+or synchronize into Android's system apps. Build and install instructions are in
+[android/README.md](android/README.md). Client fixtures and emulator checks do not
+replace live integration testing with your Mac.
 
-## Behavior and limitations
+## Architecture
 
-- Each service call checks current capabilities and validates its arguments.
-- Credentials stay in request headers; redirects are refused and TLS validation
-  remains enabled. Local HTTP requires explicit opt-in and a loopback address.
-- Client operations do not automatically retry.
-- Write success requires a saved resource ID and the matching request ID.
-  Lost or malformed responses report an unknown outcome instead of success.
-- `meta.sync_state: "local"` refers to the Mac's observation, not confirmed
-  delivery through iCloud to another device.
-- The Mac must be reachable, signed in, and running the necessary user session.
-  Sleep, reboot, permission revocation, and cloud-only files need live testing.
-- Message sending, deletion, and bulk operations are outside this plugin's
-  initial scope. Future sensitive actions need server-enforced approvals.
+```mermaid
+flowchart LR
+    H[Remote Hermes] --> P[Python plugin]
+    A[Other remote agent] -->|MCP| G
+    P -->|REST| G[Private HTTPS / Tailscale Serve]
+    M[Android app] -->|REST| G
+    G --> T[TypeScript gateway on loopback]
+    T --> J[Private SQLite write journal]
+    T -->|Protected Unix socket| S[Swift user-session host]
+    S --> E[EventKit and Contacts]
+    S --> D[Selected Drive folder bookmarks]
+```
+
+REST and MCP use the same authorization and write journal. The host checks macOS
+permissions and resource boundaries again. Remote requests cannot trigger local
+permission prompts. No Apple Account credentials are sent to the remote agent.
+
+Writes require a stable `request_id`. Replaying a completed request with the same
+client identity, key, and arguments returns its saved receipt. Reusing the key
+with different arguments fails. A crash or lost response can leave an uncertain
+outcome; the journal retains it and prevents automatic re-execution. Inspect the
+Mac and `scripts/ibridge.sh journal list` before deciding what to do next. The
+Apple save and SQLite transaction cannot provide an exactly-once guarantee.
+
+## Validation and limits
+
+Automated checks cover the Python plugin and installers, real HTTP and Unix-socket
+gateway integration, official MCP SDK clients, and native Swift code. GitHub
+Actions builds and tests on Apple silicon and Intel, verifies the signed app,
+and smoke-tests installation. The plugin is also checked with the official
+[Hermes Plugin Doctor and catalog validator](docs/hermes-compatibility.md).
+
+The cross-language workflow tests run the real plugin and gateway against a native
+IPC fixture. macOS CI has no Apple Account. **Live permissions, your selected
+folders, Tailscale connectivity, and iCloud synchronization still require the
+[acceptance checks on your Mac](docs/macos-setup.md#verify-the-complete-workflow).**
+
+A saved result means saved on this Mac. `meta.sync_state: "local"` never confirms
+that iCloud delivered it to another device. The Mac must be awake, reachable, and
+logged in; login agents do not run before login after reboot. Cloud-only files
+may need downloading. Personal app builds are ad-hoc signed, not notarized, and
+rebuilding may require granting permissions again. Keep System Integrity
+Protection and certificate verification enabled.
 
 ## Development
 
-Run the tests from the repository root:
+Use Node.js 24+ and Python 3.10+. From the repository root:
 
 ```sh
-python3 -m unittest discover -s tests -v
+npm ci --prefix gateway
+npm run check --prefix gateway
+npm run build --prefix gateway
+npm test --prefix gateway
+python3 -m pip install -r scripts/requirements-compatibility.txt
+IBRIDGE_REQUIRE_GATEWAY_TESTS=1 python3 -m unittest discover -s tests -v
+python3 scripts/export_operations.py --check
 ```
 
-The tests need permission to bind a local loopback HTTP server. No Apple Account,
-Mac, or external bridge is used by the test suite. To include JSON Schema
-validation, install the developer-only dependencies in
-`scripts/requirements-compatibility.txt`; that check skips if its validator is
-absent. CI installs them and tests Python 3.10, 3.12, and 3.14.
+On macOS, also run:
 
-The combined client/installation suite currently has **42 passing tests**.
-The plugin is also checked using the official Hermes Plugin Doctor and catalog
-validator at a pinned upstream revision; see the
-[compatibility evidence and reproduction guide](docs/hermes-compatibility.md).
+```sh
+swift test --package-path macos
+scripts/build_macos_app.sh --arch arm64 --output build/arm64
+```
 
-Complete relevant checks, commit and push each feature, then merge the validated
-feature into `main` and push `main`. Keep this README accurate after integration.
+Tests bind local HTTP and Unix sockets. The gateway must be built before the
+cross-language tests; CI requires them instead of allowing them to skip. The
+shared operation catalog is generated from the Hermes schemas and checked for
+drift against the native bundled copy.
 
-## Next live milestone
-
-Build the Swift permission-owning host and the TypeScript API implementing the
-contract, then create a reminder from the remote Hermes agent. Extend that to
-reading a calendar, finding an authorized Drive file, and creating a reminder
-that refers to it. Verify the local save separately from iCloud synchronization.
+Completed features are committed and pushed independently, merged into `main`
+after relevant validation, and reflected in this README.
 
 ## Project documents
 
+- [Mac installation, private HTTPS, and live acceptance](docs/macos-setup.md)
+- [Android client](android/README.md)
 - [Hermes plugin](plugins/hermes-ibridge/README.md)
-- [Bridge HTTP contract](docs/bridge-api.md)
-- [Implementation roadmap](docs/roadmap.md)
-- [Hermes compatibility](docs/hermes-compatibility.md)
+- [MCP transport and client configuration](docs/mcp.md)
+- [Gateway administration](gateway/README.md)
+- [HTTP contract](docs/bridge-api.md) and [native IPC protocol](docs/native-protocol.md)
+- [Roadmap](docs/roadmap.md) and [Hermes compatibility](docs/hermes-compatibility.md)

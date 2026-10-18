@@ -96,6 +96,12 @@ public final class MainActivity extends ComponentActivity {
             progress.setContentDescription("Connecting to your bridge");
             content.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
         }
+        if (!model.error.isEmpty()) {
+            TextView error = text(content, model.error, 16, Color.rgb(156, 37, 54));
+            error.setBackgroundColor(Color.rgb(255, 237, 239));
+            error.setPadding(dp(12), dp(12), dp(12), dp(12));
+            error.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        }
         switch (model.screen) {
             case CONNECT: connection(); break;
             case HOME: home(); break;
@@ -103,10 +109,6 @@ public final class MainActivity extends ComponentActivity {
             case FORM: form(); break;
             case RESULTS: results(false); break;
             case PICKER: results(true); break;
-        }
-        if (!model.error.isEmpty()) {
-            TextView error = text(content, model.error, 16, Color.rgb(156, 37, 54));
-            error.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         }
         if (!model.notice.isEmpty()) text(content, model.notice, 14, MUTED);
     }
@@ -254,6 +256,12 @@ public final class MainActivity extends ComponentActivity {
         observation(envelope);
         JSONObject data = envelope.optJSONObject("data");
         if (data == null) return;
+        if (Boolean.TRUE.equals(data.opt("scan_truncated"))) {
+            text(content, "The bridge reached its search limit. Results may be incomplete; narrow your search and try again.", 16, MUTED);
+        }
+        if ("file_names".equals(data.opt("search_scope"))) {
+            text(content, "Matches file names, not file contents.", 14, MUTED);
+        }
         JSONArray items = data.optJSONArray("items");
         if (items != null) {
             if (items.length() == 0) text(content, "No results on this page.", 18, MUTED);
@@ -300,7 +308,7 @@ public final class MainActivity extends ComponentActivity {
             case DRIVE_LIST:
             case DRIVE_SEARCH:
                 if (item.opt("path") instanceof String) {
-                    target = item.optBoolean("is_directory", false) || item.optString("type").equals("directory")
+                    target = "directory".equals(item.opt("kind")) || item.optBoolean("is_directory", false) || item.optString("type").equals("directory")
                             ? ReadOperation.DRIVE_LIST : ReadOperation.DRIVE_READ;
                     args.put("root_id", model.draft.getOrDefault("root_id", ""));
                     args.put("path", item.optString("path"));

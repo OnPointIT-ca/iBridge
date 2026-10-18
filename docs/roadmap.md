@@ -19,13 +19,20 @@ parallel subagents with isolated worktrees for independent features.
 2. **Complete:** Validated read tools for all six planned Apple service modules.
 3. **Complete:** Scoped write tools with explicit idempotency keys, safe profile
    installation, and pinned official Hermes compatibility checks.
-4. Native Swift app: establish permissions and verify access on the target Mac.
-5. TypeScript gateway: implement this contract, token scopes, durable write
-   records, and a real remote-agent-to-Reminders round trip.
-6. Core MVP: Calendar, Reminders, Contacts, selected iCloud Drive folders.
-7. Recovery: permission revocation, process restarts, sleep/wake, and reconnects.
-8. Notes and Messages adapters, enabled only for operations tested on the Mac.
-9. Incremental change detection, reconciliation, and resumable subscriptions.
+4. **Implemented:** Swift menu bar host, local permissions, private IPC, and
+   selected-folder bookmarks, targeting macOS 14+ on Apple silicon and Intel.
+5. **Implemented:** TypeScript REST/MCP gateway, scoped token administration,
+   durable write records, safe replay, and conservative uncertain outcomes.
+6. **Implemented:** Calendar, Reminders, Contacts, selected Drive folders,
+   persistent user installation, and automated integration tests.
+7. **Next live acceptance:** establish permissions and verify the complete
+   remote-agent-to-Reminders workflow on the target Mac. Test permission
+   revocation, logout/login, sleep/wake, reconnects, and iCloud delivery. Gateway
+   restart, revocation, and uncertain write recovery already have automated tests.
+8. **Deferred:** Notes and Messages adapters, enabled only after implementation
+   and testing on the Mac.
+9. **Deferred:** incremental change detection and resumable subscriptions;
+   uncertain-write reconciliation remains a manual local inspection.
 
 The plugin may register tools before the server implements their services. Each
 invocation checks the caller-specific capability map; missing capabilities fail
@@ -37,17 +44,20 @@ From the remote agent, read a calendar, find a file in an authorized Drive root,
 and create a reminder referring to it. Check the reminder on the Mac and then on
 another Apple device. A local save does not prove cloud synchronization.
 
-Before native integration, record the target macOS and Hermes versions. Test the
+The target is macOS 14 or newer with Apple silicon support. Record the actual
+macOS and Hermes versions during live acceptance. Test the
 installed host/helper identity, not just terminal scripts. Include denied/revoked
 permissions, cloud-only files, uncertain write outcomes, retries, and reboot
 followed by login. Mac unavailability is not an empty successful search.
 
-## Deferred
+## Android client
 
 The [Android client](../android/README.md) implements the v1 read operations,
 encrypted connection storage, and explicit pagination. Its live acceptance work
 depends on the same Mac host/gateway milestone above. Android writes and native
 Android Contacts/Calendar synchronization remain future work.
+
+## Deferred
 
 Public hosting, accounts/billing, multi-user administration,
 automatic updating, broad provider abstraction, and full-content indexing.

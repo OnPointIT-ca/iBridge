@@ -4,9 +4,11 @@ A native Android client for the existing [iBridge v1 API](../docs/bridge-api.md)
 It uses a client-specific bridge token. Your Apple Account stays on your Mac.
 
 This first Android version implements **read access** to the documented services.
-It does not implement the server, sign in to iCloud directly, or synchronize
-data into Android's system Contacts/Calendar databases. Live Apple access depends
-on the separately developed gateway, macOS host, permissions, and adapters.
+It does not sign in to iCloud directly or synchronize data into Android's system
+Contacts/Calendar databases. Live Apple access depends on the repository's
+gateway, macOS host, permissions, and adapters; see the [Mac setup guide](../docs/macos-setup.md).
+The current server implements Calendar, Reminders, Contacts, and selected Drive
+folders. Notes and Messages remain unavailable until their adapters are built.
 
 ## Connect
 
@@ -46,6 +48,8 @@ read. Missing operations are disabled; the server still enforces authorization
 on every request. Results are paged explicitly with **Next page**, never fetched
 in an unbounded background scan. Calendar dates use Android's date/time pickers
 and the device timezone; requests send RFC 3339 timestamps with explicit offsets.
+Event ranges cannot exceed 366 days. Drive search matches file names and reports
+when the server's bounded scan produces incomplete results.
 
 Resource details display the server's fields as plain text. HTML in Notes or
 Messages is not executed. Drive text files have a bounded UTF-8 preview; other
