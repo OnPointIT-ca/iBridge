@@ -13,7 +13,7 @@ final class MessagesBodyDecoderTests: XCTestCase {
     }
 
     func testRealFoundationAttributedStringArchives() {
-        for text in ["", "Simple note", "你好 🐈‍⬛\n\"quoted\"", String(repeating: "abc", count: 1500)] {
+        for text in ["", "Simple note", "你好 🐈‍⬛\n\"quoted\"", String(repeating: "abc", count: 1500), String(repeating: "x", count: 65_536)] {
             for object: Any in [NSAttributedString(string: text), NSMutableAttributedString(string: text)] {
                 let archive = NSArchiver.archivedData(withRootObject: object)
                 XCTAssertEqual(MessagesBodyDecoder.decode(archive), text)
@@ -26,7 +26,10 @@ final class MessagesBodyDecoderTests: XCTestCase {
         let attributed = NSMutableAttributedString(string: text)
         attributed.addAttributes([
             NSAttributedString.Key("__kIMMessagePartAttributeName"): NSNumber(value: 0),
-            NSAttributedString.Key("metadata"): "This is not the message body"
+            NSAttributedString.Key("metadata"): "This is not the message body",
+            NSAttributedString.Key("opaqueBytes"): Data((0...255).map { UInt8($0) }) as NSData,
+            NSAttributedString.Key("range"): NSValue(range: NSRange(location: 0, length: 3)),
+            NSAttributedString.Key("ratio"): NSNumber(value: 0.25)
         ], range: NSRange(location: 0, length: 3))
         attributed.addAttribute(NSAttributedString.Key("anotherAttribute"), value: "other string",
                                 range: NSRange(location: 4, length: attributed.length - 4))
@@ -123,7 +126,10 @@ final class MessagesBodyDecoderTests: XCTestCase {
         let header: [UInt8] = [4, 11] + Array((bigEndian ? "typedstream" : "streamtyped").utf8) + integer(1000, bigEndian: bigEndian)
         let stringClass: [UInt8] = [0x84, 0x84, 8] + Array("NSString".utf8) + [1]
         let rootClass: [UInt8] = [0x84, 0x84, 8] + Array("NSObject".utf8) + [0, 0x85]
-        return Data(header + [0x84, 1, 64, 0x84] + stringClass + rootClass + [0x84, 1, 43] + integer(utf8.count, bigEndian: bigEndian) + utf8 + [0x86])
+        var archive = header + [0x84, 1, 64, 0x84] + stringClass + rootClass
+        archive += [0x84, 1, 43] + integer(utf8.count, bigEndian: bigEndian)
+        archive += utf8 + [0x86]
+        return Data(archive)
     }
 
     private func integer(_ value: Int, bigEndian: Bool = false) -> [UInt8] {
