@@ -23,7 +23,7 @@ authenticated REST API directly.
   including retries of completed writes.
 - Each POST gets a fresh SDK server/transport and returns JSON. Initialization
   does not create a session or confer authority. There are no resumable results,
-  retained tool lists, subscriptions, or standalone SSE streams.
+  retained tool lists, task execution, subscriptions, or standalone SSE streams.
 - Authenticated GET, DELETE, and OPTIONS requests receive 405 with `Allow: POST`.
   Session and event-replay headers, query parameters, and JSON-RPC batches are
   rejected. Credentials are accepted only in the Authorization header.

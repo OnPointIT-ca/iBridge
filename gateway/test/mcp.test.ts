@@ -221,5 +221,8 @@ test('transport rejects invalid protocol requests and does not cache successful 
     {jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name: 'ibridge_reminders_create', arguments: writeArguments}},
   ])});
   assert.equal(batch.status, 400);
+  const task = await rpc(a.token, 'tools/call', {name: 'ibridge_reminders_create',
+    arguments: writeArguments, task: {ttl: 60000}});
+  assert.equal(task.body.error.code, -32603);
   assert.equal(native.writes, 0);
 });
