@@ -59,8 +59,11 @@ public final class MessagesAdapter {
         let database = try MessagesDatabase(url: databaseURL)
         try database.validateSchema()
         let scopedIDs = chatID.map { [$0] } ?? request.resources.identifiers(for: .messageChats)
-        let predicate = scopedIDs.contains("*") ? "1" : "c.guid IN (\(Array(repeating: "?", count: scopedIDs.count).joined(separator: ",")))"
-        let bindings = scopedIDs.contains("*") ? [] : scopedIDs
+        // Wildcards are policy syntax only; an explicit resource ID always
+        // remains a bound value, including a literal "*".
+        let allChats = chatID == nil && scopedIDs.contains("*")
+        let predicate = allChats ? "1" : "c.guid IN (\(Array(repeating: "?", count: scopedIDs.count).joined(separator: ",")))"
+        let bindings = allChats ? [] : scopedIDs
         if let chatID {
             let exists = try database.rows("SELECT c.guid FROM chat c WHERE c.guid = ? LIMIT 1", bindings: [chatID])
             guard !exists.isEmpty else {

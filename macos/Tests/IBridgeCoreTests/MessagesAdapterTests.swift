@@ -134,6 +134,9 @@ final class MessagesAdapterTests: XCTestCase {
         let adapter = MessagesAdapter(testDatabaseURL: fixture.url)
         await reject(adapter, request("messages.read", ["chat_id": "missing"], allowed: ["*"]), status: 404)
         await reject(adapter, request("messages.read", ["chat_id": "' OR 1=1 --"], allowed: ["*"]), status: 404)
+        try fixture.sql("INSERT INTO chat VALUES ('*', 'Literal star', 'iMessage')")
+        let star = try await adapter.execute(request("messages.read", ["chat_id": "*"], allowed: ["*"]))
+        XCTAssertEqual((star["items"] as? [JSONObject])?.count, 0)
     }
 
     @MainActor
