@@ -4,6 +4,8 @@ import {mkdtempSync, rmSync, readFileSync, statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createServer, type Socket} from 'node:net';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {Store} from '../src/store.js';
 import {NativeClient} from '../src/native.js';
 import {BridgeService} from '../src/service.js';
@@ -35,7 +37,7 @@ async function fixture(t: TestContext) {
   let store = new Store(home);
   let app = await buildServer({service:new BridgeService({store,native:new NativeClient(join(home,'host.sock'),300)}),mcp:false});
   let address = await app.listen({host:'127.0.0.1',port:0});
-  const client = store.createClient({name:'test-agent',operations:['*'],resources:{calendar_ids:['cal-1'],reminder_list_ids:['list-1'],drive_root_ids:['root-1']}});
+  const client = store.createClient({name:'test-agent',operations:['*'],resources:{calendar_ids:['cal-1'],reminder_list_ids:['list-1'],drive_root_ids:['root-1'],note_folder_ids:['folder-1'],message_chat_ids:['chat-1']}});
   let token = client.token;
   t.after(async()=>{await app.close();store.close();for(const socket of sockets)socket.destroy();await new Promise<void>(resolve=>native.close(()=>resolve()));rmSync(home,{recursive:true,force:true});});
   return {
@@ -59,7 +61,8 @@ test('real HTTP and UDS: per-client capabilities, query conversion and collectio
   const caps=await f.request('/api/v1/system/capabilities');
   assert.equal(caps.status,200);assert.equal(caps.body.data.api_version,'1');
   assert.equal(caps.body.data.operations['calendar.list'].available,true);
-  assert.equal(caps.body.data.operations['notes.read'].available,false);
+  assert.equal(caps.body.data.operations['notes.read'].available,true);
+  assert.equal(caps.body.data.operations['messages.read'].available,true);
   const read=await f.request('/api/v1/calendars?limit=2');
   assert.equal(read.status,200);assert.deepEqual(read.body.data.items,[{id:'cal-1',name:'Work'}]);
   assert.equal(f.calls.at(-1)?.arguments.limit,2);assert.deepEqual(f.calls.at(-1)?.resources.calendar_ids,['cal-1']);
@@ -155,13 +158,129 @@ test('native rejections are sanitized and retained; uncertain errors cannot clai
   assert.equal(uncertain.status,503);assert.equal(uncertain.body.error.outcome,'unknown');
 });
 
-test('malformed success cannot confirm a write; unimplemented adapters never dispatch',async t=>{
+test('malformed success cannot confirm a write',async t=>{
   const f=await fixture(t);f.respond=()=>({state:'saved'});
   const result=await f.request('/api/v1/reminders',{body:reminder,key:'request-0001'});
   assert.equal(result.status,503);assert.equal(result.body.error.outcome,'unknown');
-  const before=f.calls.length;
-  assert.equal((await f.request('/api/v1/notes/folders')).status,503);
-  assert.equal(f.calls.length,before);
+});
+
+test('disabled native Notes and Messages capabilities preserve only known reasons',async t=>{
+  const f=await fixture(t);
+  f.respond=()=>({operations:{
+    'notes.folders':{available:false,reason:'permission_required'},
+    'notes.search':{available:false,reason:'PRIVATE FRAMEWORK CONTENT'},
+    'messages.chats':{available:false,reason:'unsupported'},
+    'messages.search':{available:false,reason:'adapter_unavailable'},
+  }});
+  const response=await f.request('/api/v1/system/capabilities');
+  assert.equal(response.status,200);
+  const capabilities=response.body.data.operations;
+  assert.deepEqual(capabilities['notes.folders'],{available:false,reason:'permission_required'});
+  assert.deepEqual(capabilities['notes.search'],{available:false,reason:'permission_required'});
+  assert.deepEqual(capabilities['notes.read'],{available:false,reason:'permission_required'});
+  assert.deepEqual(capabilities['messages.chats'],{available:false,reason:'unsupported'});
+  assert.deepEqual(capabilities['messages.search'],{available:false,reason:'adapter_unavailable'});
+  assert.ok(!JSON.stringify(response).includes('PRIVATE FRAMEWORK CONTENT'));
+  f.fault='denied';
+  assert.equal((await f.request('/api/v1/notes/folders')).status,403);
+});
+
+test('new and pre-upgrade wildcard clients require explicit Notes and Messages resource grants',async t=>{
+  const f=await fixture(t);
+  const ungranted=f.store.createClient({name:'ungranted',operations:['*']});
+  const legacy=f.store.createClient({name:'legacy-wildcard',operations:['*'],resources:{calendar_ids:['cal-1']}});
+  // Reproduce the JSON persisted by gateway versions before these adapters existed.
+  f.store.db.prepare('UPDATE clients SET resources=? WHERE id=?').run(
+    JSON.stringify({calendar_ids:['cal-1'],reminder_list_ids:['*'],drive_root_ids:['*']}),legacy.client_id);
+  await f.restart();
+  for (const client of [ungranted,legacy]) {
+    f.token=client.token;
+    const listed=f.store.listClients().find((entry:any)=>entry.id===client.client_id) as any;
+    assert.deepEqual(listed.resources.note_folder_ids,[]);
+    assert.deepEqual(listed.resources.message_chat_ids,[]);
+    const capabilities=await f.request('/api/v1/system/capabilities');
+    for (const op of operations.filter(op=>/^(notes|messages)\./.test(op.capability))) {
+      assert.deepEqual(capabilities.body.data.operations[op.capability],{available:false,reason:'permission_denied'});
+    }
+    const count=f.calls.length;
+    for (const path of ['/notes/folders','/notes?query=plan','/notes/note-1','/messages/chats','/messages/search?query=plan','/messages/chats/chat-1/messages']) {
+      assert.equal((await f.request('/api/v1'+path)).status,403,path);
+    }
+    assert.equal((await f.request('/api/v1/notes',{body:{folder_id:'folder-1',title:'Plan',body:'text'},key:'note-key-001'})).status,403);
+    assert.equal(f.calls.length,count);
+  }
+  assert.equal(f.store.listJournal().length,0);
+  assert.equal((await f.request('/api/v1/calendars')).status,200);
+});
+
+test('Notes and Messages enforce explicit containers and forward grants for identifier and unfiltered reads',async t=>{
+  const f=await fixture(t);
+  for (const path of ['/notes?query=plan&folder_id=private-folder','/messages/search?query=plan&chat_id=private-chat','/messages/chats/private-chat/messages']) {
+    assert.equal((await f.request('/api/v1'+path)).status,403);
+  }
+  assert.equal((await f.request('/api/v1/notes',{body:{folder_id:'private-folder',title:'Plan',body:'text'},key:'note-key-001'})).status,403);
+  assert.equal(f.calls.length,0);assert.equal(f.store.listJournal().length,0);
+  for (const [path,allowed,privateId] of [['/notes/folders','folder-1','private-folder'],['/messages/chats','chat-1','private-chat']]) {
+    f.respond=()=>({items:[{id:allowed},{id:privateId}]});
+    assert.deepEqual((await f.request('/api/v1'+path)).body.data.items,[{id:allowed}]);
+  }
+  f.respond=()=>({items:[]});
+  for (const path of ['/notes?query=plan','/notes/note-1','/messages/search?query=plan']) {
+    assert.equal((await f.request('/api/v1'+path)).status,200);
+    assert.deepEqual(f.calls.at(-1)?.resources.note_folder_ids,['folder-1']);
+    assert.deepEqual(f.calls.at(-1)?.resources.message_chat_ids,['chat-1']);
+  }
+  const other=f.store.createClient({name:'other-agent',operations:['notes.folders','messages.chats'],resources:{note_folder_ids:['folder-2'],message_chat_ids:['chat-2']}});
+  f.token=other.token;
+  f.respond=()=>({items:[{id:'folder-1'},{id:'folder-2'},{id:'chat-1'},{id:'chat-2'}]});
+  assert.deepEqual((await f.request('/api/v1/notes/folders')).body.data.items,[{id:'folder-2'}]);
+  assert.deepEqual((await f.request('/api/v1/messages/chats')).body.data.items,[{id:'chat-2'}]);
+});
+
+test('Note creation journals receipts and uncertain outcomes durably without retaining note content',async t=>{
+  const f=await fixture(t);
+  const note={folder_id:'folder-1',title:'PRIVATE NOTE TITLE',body:'PRIVATE NOTE BODY'};
+  const first=await f.request('/api/v1/notes',{body:note,key:'note-key-001'});
+  assert.equal(first.status,200);assert.equal(first.body.data.state,'saved');
+  assert.equal(f.calls[0]?.operation,'notes.create');
+  await f.restart();
+  assert.deepEqual(await f.request('/api/v1/notes',{body:note,key:'note-key-001'}),first);
+  assert.equal((await f.request('/api/v1/notes',{body:{...note,body:'Changed'},key:'note-key-001'})).status,409);
+  assert.equal(f.calls.length,1);
+  f.fault='close';
+  const uncertain=await f.request('/api/v1/notes',{body:note,key:'note-key-002'});
+  assert.equal(uncertain.body.error.outcome,'unknown');
+  await f.restart();f.fault='none';
+  assert.equal((await f.request('/api/v1/notes',{body:note,key:'note-key-002'})).body.error.outcome,'unknown');
+  assert.equal(f.calls.length,2);
+  const disk=readFileSync(join(f.home,'gateway.sqlite')).toString();
+  assert.ok(!disk.includes(note.title));assert.ok(!disk.includes(note.body));
+});
+
+test('Notes identifier-only reads cannot disclose content after container grants change in flight',async t=>{
+  const f=await fixture(t);
+  f.respond=()=>{
+    f.store.db.prepare('UPDATE clients SET resources=? WHERE id=?').run(JSON.stringify({note_folder_ids:['another-folder']}),f.client.client_id);
+    return {id:'note-1',folder_id:'folder-1',body:'PRIVATE NOTE BODY'};
+  };
+  const denied=await f.request('/api/v1/notes/note-1');
+  assert.equal(denied.status,403);assert.ok(!JSON.stringify(denied).includes('PRIVATE NOTE BODY'));
+});
+
+test('CLI creates and lists separate Notes and Messages resource policies',t=>{
+  const home=mkdtempSync(join(tmpdir(),'ibridge-cli-'));
+  t.after(()=>rmSync(home,{recursive:true,force:true}));
+  const cli=(...args:string[])=>JSON.parse(execFileSync(process.execPath,
+    ['--import','tsx',fileURLToPath(new URL('../src/cli.ts',import.meta.url)),...args],
+    {env:{...process.env,IBRIDGE_HOME:home},encoding:'utf8',stdio:['ignore','pipe','pipe']}));
+  const created=cli('client','create','--name','notes-messages','--operations','notes.search,messages.read',
+    '--note-folder-ids','folder-1,folder-2','--message-chat-ids','chat-1');
+  const client=cli('client','list').clients[0];
+  assert.equal(client.id,created.client_id);
+  assert.deepEqual(client.resources.note_folder_ids,['folder-1','folder-2']);
+  assert.deepEqual(client.resources.message_chat_ids,['chat-1']);
+  assert.deepEqual(client.resources.calendar_ids,[]);
+  assert.ok(!JSON.stringify(client).includes(created.token));
 });
 
 test('oversized request bodies are rejected and unknown adapter errors do not leak details',async t=>{

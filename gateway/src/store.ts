@@ -6,7 +6,22 @@ import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {BridgeError, type Envelope} from './errors.js';
 import {operations} from './catalog.js';
 
-export interface Resources {calendar_ids: string[]; reminder_list_ids: string[]; drive_root_ids: string[]}
+export interface Resources {
+  calendar_ids: string[]; reminder_list_ids: string[]; drive_root_ids: string[];
+  note_folder_ids: string[]; message_chat_ids: string[];
+}
+const resourceNames: (keyof Resources)[] = ['calendar_ids','reminder_list_ids','drive_root_ids','note_folder_ids','message_chat_ids'];
+function resourcesWithDefaults(input: Partial<Resources>): Resources {
+  const resources: Resources = {calendar_ids:[],reminder_list_ids:[],drive_root_ids:[],note_folder_ids:[],message_chat_ids:[]};
+  for (const key of resourceNames) {
+    const ids = input[key];
+    if (ids !== undefined) {
+      if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || id.length < 1 || id.length > 512)) throw new Error('Resource IDs must be nonempty strings.');
+      resources[key] = [...new Set(ids)];
+    }
+  }
+  return resources;
+}
 export interface ClientPolicy {id: string; name: string; operations: string[]; resources: Resources; tokenHash: string}
 export interface NewClient {name: string; operations?: string[]; resources?: Partial<Resources>}
 export interface JournalRecord {client_id: string; request_id: string; operation: string; fingerprint: string; state: string; status: number | null; response: string | null; created_at: string; updated_at: string}
@@ -39,8 +54,7 @@ export class Store {
     if (typeof input.name !== 'string' || input.name.length < 1 || input.name.length > 128) throw new Error('Client name must be 1–128 characters.');
     const scopes = [...new Set(input.operations ?? [])];
     if (scopes.some(scope => scope !== '*' && !operations.some(op => op.capability === scope))) throw new Error('Unknown operation scope. Use exact capability names or explicit *.');
-    const resources: Resources = {calendar_ids: [], reminder_list_ids: [], drive_root_ids: [], ...input.resources};
-    for (const ids of Object.values(resources)) if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || id.length < 1 || id.length > 512)) throw new Error('Resource IDs must be nonempty strings.');
+    const resources = resourcesWithDefaults(input.resources ?? {});
     const id = randomUUID(), token = 'ibr_' + randomBytes(32).toString('base64url');
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -53,7 +67,9 @@ export class Store {
   policy(hash: string): ClientPolicy {
     const row = this.db.prepare('SELECT c.* FROM clients c JOIN tokens t ON t.client_id=c.id WHERE t.hash=? AND t.revoked=0 AND c.revoked=0').get(hash) as {id: string; name: string; operations: string; resources: string} | undefined;
     if (!row) throw new BridgeError(401, 'unauthorized', 'A valid client token is required.');
-    return {id: row.id, name: row.name, operations: JSON.parse(row.operations), resources: JSON.parse(row.resources), tokenHash: hash};
+    // Older clients have no Notes/Messages resource fields. Normalize them to deny
+    // access even when their existing operation scope is the explicit wildcard.
+    return {id: row.id, name: row.name, operations: JSON.parse(row.operations), resources: resourcesWithDefaults(JSON.parse(row.resources)), tokenHash: hash};
   }
   revokeClient(id: string): void {
     const result = this.db.prepare('UPDATE clients SET revoked=1 WHERE id=?').run(id);
@@ -72,7 +88,7 @@ export class Store {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   listClients(): unknown[] {
-    return this.db.prepare('SELECT id,name,operations,resources,revoked,created_at FROM clients ORDER BY created_at').all().map(row => ({...row, operations: JSON.parse(String(row.operations)), resources: JSON.parse(String(row.resources))}));
+    return this.db.prepare('SELECT id,name,operations,resources,revoked,created_at FROM clients ORDER BY created_at').all().map(row => ({...row, operations: JSON.parse(String(row.operations)), resources: resourcesWithDefaults(JSON.parse(String(row.resources)))}));
   }
   journal(client: string, key: string): JournalRecord | undefined {
     return this.db.prepare('SELECT * FROM journal WHERE client_id=? AND request_id=?').get(client, key) as unknown as JournalRecord | undefined;

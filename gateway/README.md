@@ -27,11 +27,28 @@ Omitted operation and resource grants deny access. Supply exact operation names
 from `shared/operations.json`. An explicit `'*'` allows all operations or all
 resources in that individual resource collection; quote it to prevent shell
 expansion. Contacts require an operation grant and macOS permission, with no
-per-contact policy in this MVP. Native Calendar, Reminders, and Drive collection
-results are restricted to the supplied resource IDs. IDs for initial provisioning
+per-contact policy in this MVP. Calendar, Reminders, Drive, Notes, and Messages
+collection results are restricted to the supplied resource IDs. IDs for initial provisioning
 can be discovered using a temporary read-only client with explicit wildcard
 resource collections, then revoking that client after creating the intended
 restricted one. Drive root IDs come from folders selected in the Mac app.
+
+Notes and Messages additionally require explicit folder and conversation grants:
+
+```sh
+node dist/cli.js client create --name notes-reader \
+  --operations notes.folders,notes.search,notes.read,messages.chats,messages.search,messages.read \
+  --note-folder-ids NOTES_FOLDER_ID --message-chat-ids CHAT_ID
+```
+
+Use `notes.create` to allow plain-text note creation. Messages operations are
+read-only. `--note-folder-ids` and `--message-chat-ids` each accept comma-separated
+IDs or an explicitly quoted `'*'`. Omitting either denies that service, including
+searches with no folder/chat argument and note reads by ID. Existing clients also
+default to no Notes or Messages resources, even if they previously had `'*'`
+operation scopes. Create a replacement client with the intended grants to enable
+these adapters. Native authorization checks the actual containing folder of each
+note and applies the supplied container grants to unfiltered searches.
 
 The state directory defaults to `~/Library/Application Support/iBridge` on macOS
 and `~/.local/share/ibridge` elsewhere. Set `IBRIDGE_HOME` for an alternate private
@@ -63,7 +80,9 @@ Host list. Request content and credentials are never logged.
 REST endpoints follow [the HTTP contract](../docs/bridge-api.md). MCP uses `/mcp`
 with Streamable HTTP and preconfigured Bearer authorization. The included Hermes
 plugin uses REST. Capabilities describe the current native host, macOS permissions,
-client scopes, and selected resources; Notes and Messages remain unavailable.
+client scopes, and selected resources. Notes and Messages are available only when
+the native host reports the corresponding adapter ready and the client has the
+required resource grants. Disabled or unsupported native adapters stay unavailable.
 These endpoints report observed local state, not confirmed iCloud synchronization.
 
 ## Client and request administration
@@ -116,4 +135,4 @@ npm run build
 Tests use real loopback HTTP and Unix sockets with deterministic native fixtures
 for scope enforcement, input bounds, durable replay, restart recovery, rotation,
 revocation, and uncertain outcomes. These tests do not grant macOS permissions or
-validate live Calendar, Reminders, Contacts, Drive, or iCloud behavior.
+validate live Calendar, Reminders, Contacts, Drive, Notes, Messages, or iCloud behavior.

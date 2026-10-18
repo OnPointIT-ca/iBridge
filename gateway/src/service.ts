@@ -6,8 +6,16 @@ import {Store, tokenHash, type ClientPolicy, type Resources, type JournalRecord}
 import {canonical, isObject, validateArguments} from './validation.js';
 
 const scopeAllows = (client: ClientPolicy, op: Operation) => client.operations.includes('*') || client.operations.includes(op.capability);
-const resourceKeys = {calendar_id: 'calendar_ids', list_id: 'reminder_list_ids', root_id: 'drive_root_ids'} as const;
-const collectionResources: Record<string, keyof Resources> = {'calendar.list':'calendar_ids','reminders.lists':'reminder_list_ids','drive.roots':'drive_root_ids'};
+const resourceKeys = {calendar_id:'calendar_ids',list_id:'reminder_list_ids',root_id:'drive_root_ids',folder_id:'note_folder_ids',chat_id:'message_chat_ids'} as const;
+const collectionResources: Record<string, keyof Resources> = {
+  'calendar.list':'calendar_ids','reminders.lists':'reminder_list_ids','drive.roots':'drive_root_ids',
+  'notes.folders':'note_folder_ids','messages.chats':'message_chat_ids',
+};
+const serviceResources: Record<string, keyof Resources> = {
+  calendar:'calendar_ids',reminders:'reminder_list_ids',drive:'drive_root_ids',notes:'note_folder_ids',messages:'message_chat_ids',
+};
+const requiredResources = (op: Operation): keyof Resources | undefined => serviceResources[op.capability.split('.')[0]!];
+const capabilityReasons = new Set(['permission_required','permission_denied','adapter_unavailable','unsupported','not_implemented']);
 export class BridgeService {
   readonly store: Store;
   readonly native: NativeTransport;
@@ -23,6 +31,8 @@ export class BridgeService {
   }
   private authorize(client: ClientPolicy, op: Operation, args: Record<string, unknown>) {
     if (!scopeAllows(client,op)) throw new BridgeError(403,'permission_denied','This operation is outside the client policy.');
+    const needed = requiredResources(op);
+    if (needed && client.resources[needed].length === 0) throw new BridgeError(403,'permission_denied','This resource is outside the client policy.');
     for (const [argument, policyKey] of Object.entries(resourceKeys)) {
       if (!Object.hasOwn(args,argument)) continue;
       const allowed = client.resources[policyKey];
@@ -43,13 +53,15 @@ export class BridgeService {
     for (const op of operations) {
       let reason: string | undefined;
       const nativeCapability = native[op.capability];
+      const needed = requiredResources(op);
       if (!implemented(op)) reason = 'not_implemented';
       else if (!scopeAllows(client,op)) reason = 'permission_denied';
+      else if (needed && client.resources[needed].length === 0) reason = 'permission_denied';
       else if (failure) reason = 'adapter_unavailable';
-      else if (!isObject(nativeCapability) || nativeCapability.available !== true) reason = 'permission_required';
-      const collection = collectionResources[op.capability];
-      const needed = collection ?? (op.capability.startsWith('calendar.') ? 'calendar_ids' : op.capability.startsWith('reminders.') ? 'reminder_list_ids' : op.capability.startsWith('drive.') ? 'drive_root_ids' : undefined);
-      if (!reason && needed && client.resources[needed].length === 0) reason = 'permission_denied';
+      else if (!isObject(nativeCapability) || nativeCapability.available !== true) {
+        reason = isObject(nativeCapability) && typeof nativeCapability.reason === 'string' && capabilityReasons.has(nativeCapability.reason)
+          ? nativeCapability.reason : 'permission_required';
+      }
       capabilities[op.capability] = reason ? {available:false,reason} : {available:true};
     }
     return localEnvelope({api_version:'1',operations:capabilities});
@@ -73,9 +85,14 @@ export class BridgeService {
     const requestId = typeof args.request_id === 'string' ? args.request_id : undefined;
     delete args.request_id;
     if (!requestId) {
+      const needed = requiredResources(op);
+      const dispatchedResources = needed ? canonical(client.resources[needed]) : undefined;
       const result = await this.native.call(op.capability,args,client.resources);
       client = this.current(client);
       this.authorize(client,op,args);
+      // Identifier-only reads and searches may omit a container argument. Their
+      // results must not survive a resource-policy change while the host works.
+      if (needed && canonical(client.resources[needed]) !== dispatchedResources) throw new BridgeError(403,'permission_denied','The resource policy changed during this request.');
       const collection = collectionResources[op.capability];
       if (collection && Array.isArray(result.items) && !client.resources[collection].includes('*')) {
         result.items = result.items.filter(item => isObject(item) && typeof item.id === 'string' && client.resources[collection].includes(item.id));
