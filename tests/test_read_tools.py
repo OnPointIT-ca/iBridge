@@ -93,6 +93,7 @@ class ReadToolsTests(unittest.TestCase):
             ("ibridge_calendar_list_events", {"calendar_id": "cal", "start": "tomorrow", "end": "2026-10-18T00:00:00Z"}),
             ("ibridge_calendar_list_events", {"calendar_id": "cal", "start": "2026-10-18T00:00:00", "end": "2026-10-19T00:00:00Z"}),
             ("ibridge_calendar_list_events", {"calendar_id": "cal", "start": "2026-10-18T00:00:00Z", "end": "2026-10-17T00:00:00Z"}),
+            ("ibridge_calendar_list_events", {"calendar_id": "cal", "start": "2026-01-01T00:00:00Z", "end": "2027-01-02T00:00:01Z"}),
         ]
         with patch.object(BridgeClient, "request") as network:
             for name, args in cases:
