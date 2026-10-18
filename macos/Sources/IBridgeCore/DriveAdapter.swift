@@ -50,7 +50,7 @@ public final class DriveAdapter {
     /// bookmarks. It uses exactly the production descriptor traversal and I/O.
     init(testRoots: [String: URL]) {
         self.stateDescriptor = -1
-        self.testRoots = testRoots
+        self.testRoots = testRoots.mapValues { $0.resolvingSymlinksInPath().standardizedFileURL }
         self.roots = testRoots.sorted { $0.key < $1.key }.map {
             Root(id: $0.key, name: $0.value.lastPathComponent, bookmark: Data())
         }
@@ -277,7 +277,7 @@ public final class DriveAdapter {
             throw NativeError("invalid_arguments", "Only regular files can be read.")
         }
         let fileURL = rootURL.appendingPathComponent(path)
-        if try requestDownloadIfNeeded(fileURL, parent: parent, name: name, identity: info) {
+        if try requestDownloadIfNeeded(fileURL, identity: info) {
             return ["state": "downloading"]
         }
         guard info.st_size >= 0, info.st_size <= maximum else {
@@ -304,29 +304,39 @@ public final class DriveAdapter {
                 "size_bytes": data.count, "media_type": type]
     }
 
-    private func requestDownloadIfNeeded(_ url: URL, parent: Int32, name: String, identity: stat) throws -> Bool {
-        // Resource-value lookup cannot return file contents. Verify identity on
-        // both sides of the lookup before asking iCloud to materialize the item.
-        var before = stat()
-        guard fstatat(parent, name, &before, AT_SYMLINK_NOFOLLOW) == 0,
-              DriveFS.sameFile(identity, before), before.st_mode & S_IFMT == S_IFREG else {
+    private func requestDownloadIfNeeded(_ url: URL, identity: stat) throws -> Bool {
+        // Foundation's iCloud API takes a URL, not a descriptor. A file-reference
+        // URL follows the original file identity if an ancestor is renamed or
+        // replaced. Verify its target against the securely opened descriptor;
+        // never dispatch a download using the remote request's ordinary path.
+        guard let reference = (url as NSURL).fileReferenceURL() else {
+            throw NativeError("unavailable", "The file identity could not be determined.", status: 503)
+        }
+        let referencePath = (reference as NSURL).filePathURL
+        guard let referencePath else {
+            throw NativeError("unavailable", "The file identity is unavailable.", status: 503)
+        }
+        let referenceParent = try DriveFS.openAbsoluteDirectory(referencePath.deletingLastPathComponent())
+        defer { close(referenceParent) }
+        let referenceDescriptor = openat(referenceParent, referencePath.lastPathComponent,
+                                         O_EVTONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard referenceDescriptor >= 0 else { throw DriveFS.error() }
+        defer { close(referenceDescriptor) }
+        var referenced = stat()
+        guard fstat(referenceDescriptor, &referenced) == 0,
+              DriveFS.sameFile(identity, referenced), referenced.st_mode & S_IFMT == S_IFREG else {
             throw NativeError("conflict", "The file changed while checking availability.", status: 409)
         }
         let values: URLResourceValues
         do {
-            values = try url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
+            values = try reference.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
         } catch {
             throw NativeError("unavailable", "File availability could not be determined.", status: 503)
         }
         guard values.isUbiquitousItem == true,
               values.ubiquitousItemDownloadingStatus != .current,
               values.ubiquitousItemDownloadingStatus != .downloaded else { return false }
-        var after = stat()
-        guard fstatat(parent, name, &after, AT_SYMLINK_NOFOLLOW) == 0,
-              DriveFS.sameFile(identity, after), after.st_mode & S_IFMT == S_IFREG else {
-            throw NativeError("conflict", "The file changed while checking availability.", status: 409)
-        }
-        do { try FileManager.default.startDownloadingUbiquitousItem(at: url) }
+        do { try FileManager.default.startDownloadingUbiquitousItem(at: reference) }
         catch { throw NativeError("unavailable", "The cloud download could not be requested.", status: 503) }
         return true
     }
