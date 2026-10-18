@@ -10,6 +10,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "plugins" / "hermes-ibridge"
 OUTPUT = ROOT / "shared" / "operations.json"
+NATIVE_OUTPUT = ROOT / "macos" / "Sources" / "IBridgeCore" / "Resources" / "operations.json"
 
 
 def main():
@@ -26,12 +27,16 @@ def main():
         for op in module.OPERATIONS
     ]
     rendered = json.dumps({"api_version": "1", "operations": operations}, indent=2, ensure_ascii=False) + "\n"
-    if args.check:
-        if not OUTPUT.exists() or OUTPUT.read_text() != rendered:
-            parser.exit(1, "shared/operations.json is stale; run scripts/export_operations.py\n")
-    else:
-        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-        OUTPUT.write_text(rendered)
+    outputs = [OUTPUT]
+    if NATIVE_OUTPUT.parent.is_dir():
+        outputs.append(NATIVE_OUTPUT)
+    for output in outputs:
+        if args.check:
+            if not output.exists() or output.read_text() != rendered:
+                parser.exit(1, f"{output.relative_to(ROOT)} is stale; run scripts/export_operations.py\n")
+        else:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(rendered)
 
 
 if __name__ == "__main__":
