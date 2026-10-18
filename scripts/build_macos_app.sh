@@ -54,7 +54,8 @@ for resource in "${resources[@]}"; do
   cp -R "$resource" "$stage/iBridge.app/Contents/Resources/"
 done
 /usr/bin/plutil -lint "$stage/iBridge.app/Contents/Info.plist"
-/usr/bin/codesign --force --sign "${IBRIDGE_SIGNING_IDENTITY:--}" --timestamp=none "$stage/iBridge.app"
+/usr/bin/codesign --force --sign "${IBRIDGE_SIGNING_IDENTITY:--}" --timestamp=none \
+  --entitlements "$repo/scripts/resources/iBridge.entitlements" "$stage/iBridge.app"
 /usr/bin/codesign --verify --deep --strict "$stage/iBridge.app"
 mv "$stage/iBridge.app" "$app"
 printf 'Built %s (%s; macOS 14+)\n' "$app" "$architecture"

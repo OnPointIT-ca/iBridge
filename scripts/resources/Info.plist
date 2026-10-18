@@ -15,5 +15,6 @@
     <key>NSCalendarsFullAccessUsageDescription</key><string>iBridge lets your authorized agents read and create events in calendars you allow.</string>
     <key>NSRemindersFullAccessUsageDescription</key><string>iBridge lets your authorized agents read and manage reminders in lists you allow.</string>
     <key>NSContactsUsageDescription</key><string>iBridge lets your authorized agents search contacts after you grant access.</string>
+    <key>NSAppleEventsUsageDescription</key><string>iBridge controls Notes only after you enable Notes locally, so authorized agents can read and create notes in folders you allow.</string>
 </dict>
 </plist>
