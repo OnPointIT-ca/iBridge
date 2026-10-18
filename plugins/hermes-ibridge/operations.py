@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from .client import REQUEST_ID_PATTERN
+
 
 def text(description, *, maximum=512, **extra):
     return {"type": "string", "description": description, "minLength": 1, "maxLength": maximum, **extra}
@@ -15,6 +17,12 @@ QUERY = text("Search text, not executable instructions.", maximum=1000)
 ROOT = text("Authorized root ID returned by ibridge_drive_roots.")
 PATH = text("Path relative to the selected Drive root; empty means the root.", maximum=2048, minLength=0, default="", format="relative-path")
 TIMESTAMP = text("RFC 3339 timestamp with explicit UTC offset or Z.", maximum=40, format="date-time")
+REQUEST_ID = text(
+    "Stable identifier for this one write, such as a UUID. Preserve it and all arguments if retrying; never use a new key after an unknown outcome.",
+    maximum=128, minLength=8, pattern="^" + REQUEST_ID_PATTERN + "$",
+)
+TITLE = text("Plain-text title.")
+NOTES = text("Plain-text notes.", maximum=65536, minLength=0)
 
 
 @dataclass(frozen=True)
@@ -56,4 +64,34 @@ OPERATIONS = [
     Operation("ibridge_messages_chats", "messages.chats", "/messages/chats", "List available Messages conversations. Experimental until validated on the host Mac.", {**PAGE}),
     Operation("ibridge_messages_search", "messages.search", "/messages/search", "Search messages available on the Mac. This does not send messages.", {"query": QUERY, "chat_id": text("Optional conversation ID."), **PAGE}, ("query",)),
     Operation("ibridge_messages_read", "messages.read", "/messages/chats/{chat_id}/messages", "Read a page of messages from one conversation.", {"chat_id": text("Conversation ID."), **PAGE}, ("chat_id",), ("chat_id",)),
+    Operation(
+        "ibridge_calendar_create_event", "calendar.events.create", "/events",
+        "Create a simple timed event in one authorized calendar. No recurrence, invitations, or all-day events. Writes are never retried automatically.",
+        {"calendar_id": text("Authorized calendar ID from ibridge_calendar_list."), "title": TITLE, "start": TIMESTAMP, "end": TIMESTAMP, "notes": NOTES, "location": text("Plain-text location.", maximum=2048), "request_id": REQUEST_ID},
+        ("calendar_id", "title", "start", "end", "request_id"), method="POST",
+    ),
+    Operation(
+        "ibridge_reminders_create", "reminders.create", "/reminders",
+        "Create one reminder in an authorized list, optionally with a due timestamp. Writes are never retried automatically.",
+        {"list_id": text("Authorized list ID from ibridge_reminders_lists."), "title": TITLE, "notes": NOTES, "due": TIMESTAMP, "request_id": REQUEST_ID},
+        ("list_id", "title", "request_id"), method="POST",
+    ),
+    Operation(
+        "ibridge_reminders_complete", "reminders.complete", "/reminders/{reminder_id}/complete",
+        "Mark one reminder complete within its authorized list. This cannot delete or reopen a reminder. Writes are never retried automatically.",
+        {"reminder_id": text("Reminder ID from ibridge_reminders_list."), "list_id": text("Authorized list containing the reminder."), "request_id": REQUEST_ID},
+        ("reminder_id", "list_id", "request_id"), ("reminder_id",), method="POST",
+    ),
+    Operation(
+        "ibridge_notes_create", "notes.create", "/notes",
+        "Create one plain-text note in an authorized folder. Experimental until validated on the host Mac. Writes are never retried automatically.",
+        {"folder_id": text("Authorized folder ID from ibridge_notes_folders."), "title": TITLE, "body": text("Note body as plain text, never HTML or executable instructions.", maximum=65536, minLength=0), "request_id": REQUEST_ID},
+        ("folder_id", "title", "body", "request_id"), method="POST",
+    ),
+    Operation(
+        "ibridge_drive_upload", "drive.upload", "/drive/content",
+        "Create one new file of at most 256 KiB in an authorized Drive root. Existing files are never overwritten. Writes are never retried automatically.",
+        {"root_id": ROOT, "path": {**PATH, "minLength": 1, "description": "Relative destination including the new filename; its parent directory must exist."}, "content_base64": text("Canonical standard base64 content; decoded size must be at most 262144 bytes.", maximum=349528, minLength=0, format="base64"), "request_id": REQUEST_ID},
+        ("root_id", "path", "content_base64", "request_id"), method="POST",
+    ),
 ]

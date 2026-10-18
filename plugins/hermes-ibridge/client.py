@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from http.client import HTTPException
 from urllib.error import HTTPError, URLError
@@ -13,6 +14,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+REQUEST_ID_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}"
 
 
 class BridgeError(Exception):
@@ -24,6 +26,19 @@ class BridgeError(Exception):
 
     def result(self):
         return {"error": {"code": self.code, "message": self.message, **self.details}}
+
+
+def unknown_write_error(error, request_id):
+    return BridgeError(
+        error.code,
+        error.message + (
+            " The write may have completed on the Mac. Inspect the resource or reconcile"
+            " with the bridge before retrying. If retrying, reuse this exact request_id"
+            " with the exact same arguments; never use a new key for this operation."
+            " No automatic retry was performed."
+        ),
+        **{**error.details, "request_id": request_id, "outcome": "unknown"},
+    )
 
 
 def _setting(name: str):
@@ -96,19 +111,58 @@ class BridgeClient:
         self.config = config
         self._opener = build_opener(_NoRedirect())
 
-    def request(self, method: str, path: str):
-        if method != "GET" or not path.startswith("/api/v1/"):
+    def request(self, method: str, path: str, body=None, request_id=None):
+        if method not in {"GET", "POST"} or not path.startswith("/api/v1/"):
             raise BridgeError("invalid_request", "Unsupported bridge request.")
-        req = Request(
-            self.config.url.rstrip("/") + path,
-            method=method,
-            headers={"Authorization": "Bearer " + self.config.token, "Accept": "application/json"},
-        )
+        writing = method == "POST"
+        if writing:
+            if not isinstance(body, dict) or not isinstance(request_id, str) or not re.fullmatch(REQUEST_ID_PATTERN, request_id):
+                raise BridgeError("invalid_request", "Writes require a JSON object and a stable 8–128 character request_id.")
+        elif body is not None or request_id is not None:
+            raise BridgeError("invalid_request", "Read requests cannot contain a body or request_id.")
+        headers = {"Authorization": "Bearer " + self.config.token, "Accept": "application/json"}
+        payload = None
+        if writing:
+            try:
+                payload = json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            except (TypeError, ValueError, UnicodeError):
+                raise BridgeError("invalid_request", "Write body is not valid JSON.") from None
+            headers.update({"Content-Type": "application/json", "Idempotency-Key": request_id})
+        req = Request(self.config.url.rstrip("/") + path, method=method, headers=headers, data=payload)
+
+        def failure(code, message, *, ambiguous=False, **details):
+            error = BridgeError(code, message, **details)
+            if writing and ambiguous:
+                return unknown_write_error(error, request_id)
+            return error
+
+        deadline = time.monotonic() + self.config.timeout
         try:
             with self._opener.open(req, timeout=self.config.timeout) as response:
+                if writing and response.status not in {200, 201}:
+                    raise BridgeError("invalid_response", "Bridge did not confirm a completed write.")
                 if response.headers.get_content_type() != "application/json":
                     raise BridgeError("invalid_response", "Bridge response must be JSON.")
-                raw = response.read(MAX_RESPONSE_BYTES + 1)
+                chunks = []
+                size = 0
+                while size <= MAX_RESPONSE_BYTES:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError()
+                    # CPython's HTTPResponse exposes its socket here. Keep the
+                    # fallback bounded by the configured inactivity timeout on
+                    # other implementations; deadline checks still stop drips.
+                    sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+                    if sock is not None:
+                        sock.settimeout(remaining)
+                    chunk = response.read1(min(65536, MAX_RESPONSE_BYTES + 1 - size))
+                    if time.monotonic() > deadline:
+                        raise TimeoutError()
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    size += len(chunk)
+                raw = b"".join(chunks)
                 if len(raw) > MAX_RESPONSE_BYTES:
                     raise BridgeError("response_too_large", "Bridge response exceeds the client limit; narrow the request.")
                 try:
@@ -117,6 +171,16 @@ class BridgeClient:
                     raise BridgeError("invalid_response", "Bridge returned invalid JSON.") from None
                 if not isinstance(result, dict) or "data" not in result or "error" in result:
                     raise BridgeError("invalid_response", "Bridge response does not match the v1 envelope.")
+                if writing:
+                    data = result["data"]
+                    if (
+                        not isinstance(data, dict)
+                        or data.get("request_id") != request_id
+                        or data.get("state") != "saved"
+                        or not isinstance(data.get("id"), str)
+                        or not data["id"]
+                    ):
+                        raise BridgeError("invalid_response", "Bridge did not confirm this request_id, a saved state, and a resource ID.")
                 return result
         except HTTPError as exc:
             status = exc.code
@@ -134,11 +198,19 @@ class BridgeClient:
             }.get(status, ("http_error", "Bridge request failed."))
             if 300 <= status < 400:
                 code, message = "redirect_refused", "Bridge redirects are not followed; check the configured origin."
-            raise BridgeError(code, message, http_status=status) from None
+            # Only these contract statuses definitively reject a write before effects.
+            definitive_rejections = {400, 401, 403, 404, 409, 413, 422, 429}
+            raise failure(code, message, ambiguous=status not in definitive_rejections, http_status=status) from None
         except TimeoutError:
-            raise BridgeError("timeout", "Bridge request timed out.") from None
+            raise failure("timeout", "Bridge request timed out.", ambiguous=True) from None
         except (URLError, OSError, HTTPException):
-            raise BridgeError("connection_failed", "Could not establish a verified connection to the bridge.") from None
+            raise failure("connection_failed", "Could not establish a verified connection to the bridge.", ambiguous=True) from None
+        except BridgeError as exc:
+            raise failure(exc.code, exc.message, ambiguous=True, **exc.details) from None
+        except Exception:
+            # Unexpected response/parser failures after dispatch also cannot
+            # prove a write did not run. Never include arbitrary exception text.
+            raise failure("client_error", "Could not verify the bridge response.", ambiguous=True) from None
 
     def capabilities(self):
         result = self.request("GET", "/api/v1/system/capabilities")
@@ -151,4 +223,14 @@ class BridgeClient:
 
     def render(self, result):
         # Defense in depth against accidental credential echoes from a server.
-        return json.dumps(result, ensure_ascii=False).replace(self.config.token, "[REDACTED]")
+        # Redact values before encoding so a token such as "true" or "1" cannot
+        # replace JSON literals and turn a valid result into malformed JSON.
+        def redact(value):
+            if isinstance(value, str):
+                return value.replace(self.config.token, "[REDACTED]")
+            if isinstance(value, list):
+                return [redact(item) for item in value]
+            if isinstance(value, dict):
+                return {redact(key): redact(item) for key, item in value.items()}
+            return value
+        return json.dumps(redact(result), ensure_ascii=False)
