@@ -38,12 +38,12 @@ if [[ "$architecture" == universal ]]; then
   arm_bin=$(build_arch arm64)
   intel_bin=$(build_arch x86_64)
   xcrun lipo -create "$arm_bin/iBridgeHost" "$intel_bin/iBridgeHost" -output "$stage/iBridge.app/Contents/MacOS/iBridgeHost"
-  xcrun lipo -verify_arch arm64 x86_64 "$stage/iBridge.app/Contents/MacOS/iBridgeHost"
+  xcrun lipo "$stage/iBridge.app/Contents/MacOS/iBridgeHost" -verify_arch arm64 x86_64
   resource_bin=$arm_bin
 else
   bin=$(build_arch "$architecture")
   cp "$bin/iBridgeHost" "$stage/iBridge.app/Contents/MacOS/iBridgeHost"
-  xcrun lipo -verify_arch "$architecture" "$stage/iBridge.app/Contents/MacOS/iBridgeHost"
+  xcrun lipo "$stage/iBridge.app/Contents/MacOS/iBridgeHost" -verify_arch "$architecture"
   resource_bin=$bin
 fi
 mkdir -p "$stage/iBridge.app/Contents/Resources"
